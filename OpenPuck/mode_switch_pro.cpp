@@ -481,7 +481,7 @@ static void jcInputPrefix(uint8_t slot, uint8_t *out)
 {
 	uint8_t bond = jcBondOf(
 		slot); // input data comes from the mapped controller; timer/state stay per USB slot
-	uint32_t b = g_in[bond].buttons;
+	uint32_t b = g_in[bond].buttons | padDpadButtons(g_in[bond]);
 	// QAM (3 dots) remap -> applied via codeToJc below like a back paddle (so Capture(18)/any target work).
 	bool qam = g_qamMap && (b & TB_QAM);
 	if ((b & CHORD_BACK4) == CHORD_BACK4)

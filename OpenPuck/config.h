@@ -170,14 +170,18 @@ struct TypeCfg {
 };
 extern TypeCfg g_type[ET_COUNT];
 
-// Trackpad -> analog stick mapping, per emulated type: {left pad, right pad}, values PS_OFF/PS_LEFT/PS_RIGHT.
+// Trackpad mapping, per emulated type: {left pad, right pad}. Values:
+//   PS_OFF / PS_LEFT / PS_RIGHT = stick mapping
+//   PS_DPAD_TOUCH / PS_DPAD_CLICK = Switch Pro D-pad mapping modes
 // While the mapped pad is touched its coordinates drive that stick; releasing it re-centers the stick (the
 // physical stick still drives it whenever the pad is untouched). Kept OUTSIDE TypeCfg so the on-flash Cfg
 // layout only grows in its tail -- an existing cfg.bin still loads and keeps every other setting.
 #define PS_OFF 0
 #define PS_LEFT 1
 #define PS_RIGHT 2
-#define PS_MAX 2
+#define PS_DPAD_TOUCH 3
+#define PS_DPAD_CLICK 4
+#define PS_MAX 4
 extern uint8_t g_padStickCfg[ET_COUNT][2];
 extern uint8_t
 	g_etype; // etypeForMode(g_usbMode), resolved at boot (ET_NONE for puck modes)
