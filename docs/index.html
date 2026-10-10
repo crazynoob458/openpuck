@@ -403,7 +403,7 @@
       <div class="card fwupcard" id="relCard">
         <h2>Update from a release</h2>
         <div class="row" style="margin-top:0">
-          <span class="note" style="flex:1;margin:0">Official builds from <a href="https://github.com/safijari/openpuck/releases" target="_blank" rel="noopener" style="color:var(--acc2)">github.com/safijari/openpuck/releases</a> &nbsp;·&nbsp; installed: <b id="updInstalled" style="color:var(--acc)">—</b></span>
+          <span class="note" style="flex:1;margin:0">Official builds from <a href="https://github.com/crazynoob458/openpuck/releases" target="_blank" rel="noopener" style="color:var(--acc2)">github.com/crazynoob458/openpuck/releases</a> &nbsp;·&nbsp; installed: <b id="updInstalled" style="color:var(--acc)">—</b></span>
           <button id="relRefresh">Refresh</button>
         </div>
         <div id="relList" class="note" style="margin:0">loading…</div>
@@ -2129,7 +2129,7 @@ $("#uf2Flash").onclick=()=>{
 // NOT, so the release workflow mirrors every OpenPuck .uf2 onto the repo's orphan `firmware` branch and the
 // panel fetches it from raw.githubusercontent.com (which is CORS-clean). Fallbacks: the API asset endpoint
 // (in case GitHub ever fixes its CDN), then a plain new-tab download + the local-file card.
-const REL_REPO="safijari/openpuck";
+const REL_REPO="crazynoob458/openpuck";
 let relCache=null;
 // firmware-mirror manifest: asset name -> {panelUpdate}. Written by the release workflow, which scans each
 // .uf2 for the FWUP_TAG capability string. null = manifest unreachable (then releases just go unbadged; the
