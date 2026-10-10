@@ -3,11 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OpenPuck Config</title>
+<title>The Internet's loneliest OpenPuck Configuator</title>
+  <!-- holy fucking shit this is unreadable -->
 <style>
+  @font-face {
+    font-family: 'Splatfont2';
+    src: url('https://konkon.moe/splatfont2.woff2') format('woff2');
+  }
   :root{ --bg:#11131a; --card:#1b1f2b; --fg:#e7ecf3; --mut:#8a93a6; --acc:#5bd6a0; --acc2:#5b9bd6; --bad:#d65b6e; --warn:#e3b341; }
   *{box-sizing:border-box}
-  body{margin:0;font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
+  body{margin:0;font:14px/1.5 Splatfont2,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
   h1{font-size:20px;margin:0 0 4px}
   .sub{color:var(--mut);margin:0 0 18px;font-size:13px}
   /* sticky top action bar: connection + device-maintenance actions */
@@ -125,10 +130,10 @@
 </head>
 <body>
 <div class="topbar">
-  <span class="brand">OpenPuck <small>SC2 puck · WebUSB</small></span>
-  <span id="connState" class="pill dn">disconnected</span>
-  <button id="connectBtn" class="primary">Connect</button>
-  <span id="updAvail" class="pill hide" title="A newer OpenPuck release is available — click to open the Firmware update tab">…</span>
+  <span class="brand">OpenPuck <small>Crazynoob's fork</small></span>
+  <span id="connState" class="pill dn">disconnected 3:</span>
+  <button id="connectBtn" class="primary">Connect :3</button>
+  <span id="updAvail" class="pill hide" title="A newer OpenPuck (fork) release is available — click to open the Firmware update tab">…</span>
   <span class="spacer"></span>
   <button id="betaBtn" class="beta" title="Show beta features warning and enable beta UI">Beta</button>
   <button id="debugCdc" title="Reboot ONCE with the CDC serial console enabled (WebUSB goes away for that boot); auto-reverts on the next boot">Debug CDC</button>
@@ -138,7 +143,7 @@
   <button id="wipeBoard" class="danger debugonly" title="ERASE THE ENTIRE BOARD: firmware + all settings + bonds. The board reboots app-less and mounts as the UF2 drive on every boot until you re-flash OpenPuck. Debug only. Cannot be undone.">☢ Wipe board</button>
 </div>
 <div class="wrap">
-  <p class="sub">First connect uses the Chrome/Edge device picker; reconnects are automatic. If the picker is empty, quit any app holding the device or replug.</p>
+  <p class="sub">connect your openpuck to your pc dumbass, also use a chromium based browser firefox does not work</p>
 
   <div id="panel" class="hide">
     <div class="slot-tabs" id="mainTabs">
@@ -403,7 +408,7 @@
       <div class="card fwupcard" id="relCard">
         <h2>Update from a release</h2>
         <div class="row" style="margin-top:0">
-          <span class="note" style="flex:1;margin:0">Official builds from <a href="https://github.com/crazynoob458/openpuck/releases" target="_blank" rel="noopener" style="color:var(--acc2)">github.com/crazynoob458/openpuck/releases</a> &nbsp;·&nbsp; installed: <b id="updInstalled" style="color:var(--acc)">—</b></span>
+          <span class="note" style="flex:1;margin:0">Unofficial fork builds from <a href="https://github.com/crazynoob458/openpuck/releases" target="_blank" rel="noopener" style="color:var(--acc2)">github.com/crazynoob458/openpuck/releases</a> &nbsp;·&nbsp; installed: <b id="updInstalled" style="color:var(--acc)">—</b></span>
           <button id="relRefresh">Refresh</button>
         </div>
         <div id="relList" class="note" style="margin:0">loading…</div>
