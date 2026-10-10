@@ -554,7 +554,6 @@ bool hapticAudioRumble(uint16_t lowFreq, uint16_t highFreq, uint8_t slot)
 {
 	if (slot >= NSLOT)
 		return false;
-	}
 
 	g_audioLow[slot] = lowFreq;
 	g_audioHigh[slot] = highFreq;
@@ -2542,8 +2541,6 @@ void hapticInit()
 		g_audioLow[s] = g_audioHigh[s] = 0;
 		g_lastSentLow[s] = g_lastSentHigh[s] = 0;
 		g_rumble80On[s] = false;
-		g_rumble80Low[s] = 0;
-		g_rumble80High[s] = 0;
 		g_rumble80Ms[s] = 0;
 		g_hdRumble[s] = {};
 		// post-connect haptic block is permanently disabled (not armed, not configurable)
@@ -2588,8 +2585,6 @@ void hapticOnReconnect(int slot)
 	g_audioLow[slot] = g_audioHigh[slot] = 0;
 	g_lastSentLow[slot] = g_lastSentHigh[slot] = 0;
 	g_rumble80On[slot] = false;
-	g_rumble80Low[slot] = 0;
-	g_rumble80High[slot] = 0;
 	g_rumble80Ms[slot] = 0;
 	// Scrub haptics queued before the link came up (stale across the reconnect) -- this slot only.
 	hapticCancelPendingOn(slot);
