@@ -632,11 +632,11 @@ let lizardBusy = false;
 let lizardLoaded = false;  // one-shot: the lizard map is fetched lazily, only once the connected puck proves it speaks v16+
 const BACK_LABELS = ["L4 (back upper-left)","R4 (back upper-right)","L5 (back lower-left)","R5 (back lower-right)"];
 const typeEls = []; // one entry per TYPE_DEFS: {sec, tab, activeDot, back[], qam, abSwap, pad, led, ledV, rumble, padStick[]}
-// Trackpad -> joystick mapping (firmware PS_OFF/PS_LEFT/PS_RIGHT). Field id = PAD_STICK_FIELD0 + et*2 + pad
-// (pad 0 = left trackpad, 1 = right). While mapped and touched the pad drives that stick; on release the
-// stick re-centers, and an untouched mapped pad leaves the physical stick in control.
+// Trackpad mapping field ids: PAD_STICK_FIELD0 + et*2 + pad (pad 0 = left, 1 = right). All emulated types
+// support Off/Left/Right stick mapping; Switch also supports D-pad on touch and D-pad on click.
 const PAD_STICK_FIELD0 = 80;
 const PAD_STICK_OPTS = [[0,"Off (touchpad)"],[1,"Left stick"],[2,"Right stick"]];
+const PAD_STICK_SWITCH_DPAD_OPTS = [[3,"D-pad on touch (Switch Pro)"],[4,"D-pad on click (Switch Pro)"]];
 const PAD_STICK_LABELS = ["Left trackpad \u2192 stick","Right trackpad \u2192 stick"];
 function mkSelect(def, includeNone){
   const sel=document.createElement("select");
@@ -733,7 +733,8 @@ function setTab(et){
       const row=document.createElement("div"); row.className="row";
       const lab=document.createElement("label"); lab.textContent=PAD_STICK_LABELS[pad]; row.appendChild(lab);
       const sel=document.createElement("select");
-      for(const [v,lbl] of PAD_STICK_OPTS){ const o=document.createElement("option"); o.value=v; o.textContent=lbl; sel.appendChild(o); }
+      const opts=(et===1) ? [...PAD_STICK_OPTS, ...PAD_STICK_SWITCH_DPAD_OPTS] : PAD_STICK_OPTS;
+      for(const [v,lbl] of opts){ const o=document.createElement("option"); o.value=v; o.textContent=lbl; sel.appendChild(o); }
       row.appendChild(sel); sec.appendChild(row);
       sel.addEventListener("change",()=>setField(PAD_STICK_FIELD0+et*2+pad, +sel.value));
       rec.padStick.push(sel);

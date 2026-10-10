@@ -110,6 +110,42 @@ void padStickBlend(uint32_t b, int16_t lpx, int16_t lpy, int16_t rpx,
 	}
 }
 
+uint32_t padDpadButtons(const PuckInput &in)
+{
+	if ((in.buttons & CHORD_BACK4) == CHORD_BACK4)
+		return 0;
+	const int16_t px[2] = { in.lpx, in.rpx };
+	const int16_t py[2] = { in.lpy, in.rpy };
+	const uint32_t touched[2] = { TB_LPADT, TB_RPADT };
+	const uint32_t clicked[2] = { TB_LPADC, TB_RPADC };
+	uint32_t out = 0;
+	for (int p = 0; p < 2; p++) {
+		uint8_t mode = g_padStick[p];
+		if (mode != PS_DPAD_TOUCH && mode != PS_DPAD_CLICK)
+			continue;
+		if (!(in.buttons & touched[p]))
+			continue;
+		if (mode == PS_DPAD_CLICK && !(in.buttons & clicked[p]))
+			continue;
+		int32_t x = px[p], y = py[p];
+		int32_t ax = x < 0 ? -x : x, ay = y < 0 ? -y : y;
+		if (ax < 6000 && ay < 6000 && ax * ax + ay * ay < 36000000)
+			continue;
+
+		// tan(22.5 degrees) separates cardinal sectors from diagonals.
+		if (ax * 1000 >= ay * 414)
+			out |= x < 0 ? TB_DLF : TB_DRT;
+		if (ay * 1000 >= ax * 414)
+			out |= y < 0 ? TB_DDN : TB_DUP;
+	}
+	// Opposing pads must not produce an invalid D-pad combination.
+	if ((out & (TB_DLF | TB_DRT)) == (TB_DLF | TB_DRT))
+		out &= ~(TB_DLF | TB_DRT);
+	if ((out & (TB_DUP | TB_DDN)) == (TB_DUP | TB_DDN))
+		out &= ~(TB_DUP | TB_DDN);
+	return out;
+}
+
 void slotSticks(uint8_t slot, int16_t *lx, int16_t *ly, int16_t *rx,
 		int16_t *ry)
 {

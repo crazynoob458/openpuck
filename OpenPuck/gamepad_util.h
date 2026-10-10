@@ -61,6 +61,7 @@ void steamPadsToTouch(uint32_t b, uint16_t touchH, int16_t lpx, int16_t lpy,
 void padStickBlend(uint32_t b, int16_t lpx, int16_t lpy, int16_t rpx,
 		   int16_t rpy, int16_t *lx, int16_t *ly, int16_t *rx,
 		   int16_t *ry);
+uint32_t padDpadButtons(const PuckInput &in);
 
 // g_in[slot] sticks with padStickBlend applied -- what every emulated mode should send to the host.
 void slotSticks(uint8_t slot, int16_t *lx, int16_t *ly, int16_t *rx,
