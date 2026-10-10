@@ -135,6 +135,7 @@
   <button id="connectBtn" class="primary">Connect :3</button>
   <span id="updAvail" class="pill hide" title="A newer OpenPuck (fork) release is available — click to open the Firmware update tab">…</span>
   <span class="spacer"></span>
+  <button id="infoButton" title="WTF is this">WTF is this fork?</button>
   <button id="betaBtn" class="beta" title="Show beta features warning and enable beta UI">Beta</button>
   <button id="debugCdc" title="Reboot ONCE with the CDC serial console enabled (WebUSB goes away for that boot); auto-reverts on the next boot">Debug CDC</button>
   <button id="dfuSerial" title="Reboot into serial DFU (adafruit-nrfutil), then replug">Serial DFU</button>
@@ -2366,6 +2367,10 @@ $("#factoryErase").onclick=async()=>{
   if(typed!=="ERASE"){ log("factory erase cancelled (confirmation text did not match)"); return; }
   await send([0x0A,0x45,0x52,0x53]);
   log("FACTORY ERASE sent — copycat is reformatting and rebooting to defaults. Re-pair the controller, then reconnect.");
+};
+$("#infoButton").onclick=async()=>{
+  if(!confirm("Hi! this is a shitty fork of the popular(?) OpenPuck project, this fork is just a bunch of branches from pull requests that I find interesting that havent been merged upstream (not also counting that upstream looks dead since there has been no commits for a month at the time of writing), so I spun up this fork to from the branches of others, just note this entire project is entirely vibecoded (not that I myself added anything in the first place) with pretty much zero code added by me and just patches from upstream that I add on if I find it particularly interesting, I specialise in C# and html for goodness sakes, so really I hand edit the configuration panel myself! (like this message you see here lmao) aside from that yeah this is the fork, hopefully you enjoy..??")) return;
+  log("hi :3");
 };
 // Debug-only: full board wipe. Erases the firmware itself (not just settings), leaving the board app-less so
 // it mounts as the UF2 bootloader drive on every boot until OpenPuck is flashed again. Sends 0x25 + "WIPE".
