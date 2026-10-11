@@ -381,6 +381,10 @@ PCM streaming, measured with the controller's IMU over USB (2026-10-03):
 - Level: a u-law sample amplitude of about 0.4 (0.31 at 100 Hz, 0.49 at 320 Hz) matches a -3 dB `0x83` tone.
 - An 8 kHz stereo stream is 258 frames/s, above one relay per 4 ms poll. OpenPuck flushes a second queued relay in
   the same cycle when the ring holds a backlog, and resends an unanswered `0x86`-`0x89` frame once with the same PID.
+  A frame still unanswered goes back to the front of the ring for up to two later cycles: a lost frame would take its
+  samples out of the stream's fill for good, and two or three losses run it dry.
+- A stream that has gone silent is left to run dry. A `0x86` op 1 or a `-128 dB` `0x83` cut sent to an idle actuator
+  plays as a click, so OpenPuck sends them only while something may still be playing.
 
 OpenPuck uses this stream itself for the DualSense wave haptics style (DUALSENSE_HAPTICS.md) and for Switch Pro HD
 rumble (§9.5).

@@ -72,11 +72,19 @@ test = '''int main(){
  now+=20;hapticSwitchPitch(0,0,0,0,30000,160,440,160,400);hapticHdTask();assert(messages.size()==5);
  now+=12;hapticHdTask();assert(messages.size()==6 && word(messages[5],2)==400);
  now+=1;hapticSwitchPitch(0,0,0,0,65535,160,440,160,400);hapticHdTask();assert(messages.size()==7 && gain(6)>gain(5));
- // silence cuts the pads at once; past the PCM hang it stops: -128 cuts on both pads, twice
+ // silence cuts the pads at once; past the PCM hang it stops without sending anything (a cut to an idle pad clicks)
  hapticSwitchHd(0,0,0,0,0);hapticHdTask();assert(g_hdRumble[0].active && messages.size()==8 && side(7)==HSIDE_RPAD && gain(7)==-128);
- now+=500;hapticHdTask();assert(!g_hdRumble[0].active && messages.size()==10);
- for(size_t i=8;i<10;i++)assert(messages[i].rid==0x83 && gain(i)==-128 && side(i)==HSIDE_PADS);
+ now+=500;hapticHdTask();assert(!g_hdRumble[0].active && messages.size()==8);
  for(auto &m:messages)assert(m.rid!=0x80 && m.p[0]<HSIDE_LGRIP);
+ // an abrupt stop mid-effect still cuts both pads, twice, and trims the grip stream with 0x86 op 1
+ reset();keepPcm=true;hapticSwitchHd(0,40000,40000,40000,40000);hapticHdTask();now+=8;hapticHdTask();
+ {auto n=messages.size();g_rumble=0;now+=8;hapticHdTask();assert(!g_hdRumble[0].active && messages.size()==n+3);
+  for(size_t i=n;i<n+2;i++)assert(messages[i].rid==0x83 && gain(i)==-128 && side(i)==HSIDE_PADS);
+  assert(messages[n+2].rid==0x86 && messages[n+2].p[0]==1);}
+ // rumble turned off during the silent hang: nothing is playing, so nothing is sent
+ reset();keepPcm=true;hapticSwitchHd(0,40000,40000,40000,40000);hapticHdTask();
+ hapticSwitchHd(0,0,0,0,0);now+=200;hapticHdTask();assert(g_hdPcmState[0].on);
+ {auto n=messages.size();g_rumble=0;now+=8;hapticHdTask();assert(!g_hdRumble[0].active && !g_hdPcmState[0].on && messages.size()==n);}
  reset();g_hdPadScale=300;g_rumbleScale=200;hapticSwitchPitch(0,0,65535,0,65535,160,275,160,275);hapticHdTask();
  assert(messages.size()==2 && gain(0)==-15 && word(messages[0],2)==275 && side(0)==HSIDE_LPAD && side(1)==HSIDE_RPAD);
  reset();hapticSwitchHd(2,65535,65535,65535,65535);g_rumbleScale=500;hapticHdTask();assert(messages.size()==2 && messages[0].slot==2);
@@ -121,10 +129,10 @@ test = '''int main(){
  {std::vector<int> n;for(auto &m:messages)if(m.rid==0x88)n.push_back(m.p[0]);assert((n==std::vector<int>{31,31,3}));}
  now+=8;hapticHdTask();assert(messages.back().rid==0x88 && messages.back().p[0]==31);
  g_rumbleScale=100;
- // a silent gap keeps the stream alive; past the hang it stops with 0x86 op 1
+ // a silent gap keeps the stream alive; past the hang it just stops sending frames (no 0x86 op 1)
  hapticSwitchHd(0,0,0,0,0);now+=100;hapticHdTask();assert(g_hdPcmState[0].on && messages.back().rid==0x88);
  now+=500;hapticHdTask();assert(!g_hdPcmState[0].on);
- {bool off=false;for(auto &m:messages)off|=m.rid==0x86 && m.p[0]==1;assert(off);}
+ for(auto &m:messages)assert(!(m.rid==0x86 && m.p[0]==1));
  reset();hdrBuildLevels();hdrReset(0);uint8_t b[4]={};uint16_t lo,hi;uint8_t packet[9]={};
  assert(hdrDecode(0,0,b,&lo,&hi)==0 && lo==0 && hi==0);
  uint32_t w=(1u<<30)|(1u<<25)|(3u<<20);for(int i=0;i<4;i++)b[i]=(w>>(8*i))&255;

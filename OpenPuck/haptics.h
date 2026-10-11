@@ -237,8 +237,10 @@ void hapticStabTask();
 
 void rfConnQueueHapticRelay();
 // returns true if a relay frame was actually transmitted this call (queue had an entry), so the poll loop can
-// count relay TXs separately from poll cycles.
-bool rfConnFlushRelay(uint8_t ch, uint8_t s1);
+// count relay TXs separately from poll cycles. *requeued is set when an unanswered PCM frame went back on the
+// ring for a later cycle.
+#define PCM_RELAY_RETRIES 2u
+bool rfConnFlushRelay(uint8_t ch, uint8_t s1, bool *requeued = nullptr);
 // times a relay-ring drain hit its iteration cap (head/tail desync or corruption) -- non-zero means we caught
 // and recovered from what would otherwise be an IRQ-off watchdog hang. Surfaced on the WebUSB panel.
 extern volatile uint16_t g_ringFault;

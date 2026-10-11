@@ -106,6 +106,8 @@ struct RelayMsg {
 	// set by the caller at relayEnqueue() time (see haptics.h) -- true iff a real controller reply is
 	// wanted for this specific message, i.e. whether rfConnFlushRelay appends the query-reply trailer.
 	bool expectReply;
+	// later poll cycles this PCM frame was retried on after going unanswered
+	uint8_t tries;
 };
 // deep enough to hold a full Steam settings/LED transaction burst without loss
 #define RELAY_QLEN 32
@@ -163,6 +165,7 @@ bool relayEnqueue(uint8_t rid, const uint8_t *payload, uint8_t plen,
 		g_rq[s][h].len = plen;
 		g_rq[s][h].expectReply = expectReply;
 		g_rq[s][h].isHaptic = isHaptic;
+		g_rq[s][h].tries = 0;
 		if (plen)
 			memcpy(g_rq[s][h].data, payload, plen);
 		g_rqHead[s] = nx;
@@ -193,12 +196,28 @@ bool relayEnqueueFront(uint8_t rid, const uint8_t *payload, uint8_t plen,
 	g_rq[slot][t].len = plen;
 	g_rq[slot][t].expectReply = false;
 	g_rq[slot][t].isHaptic = isHaptic;
+	g_rq[slot][t].tries = 0;
 	if (plen)
 		memcpy(g_rq[slot][t].data, payload, plen);
 	g_rqTail[slot] = t;
 	__set_PRIMASK(pm);
 	faultDiagTrace(FR_RELAY, (uint16_t)((slot << 8) | rid));
 	return true;
+}
+// Put a consumed entry back at the front of its ring, ahead of everything queued after it.
+static void relayRequeue(uint8_t slot, const RelayMsg &m)
+{
+	uint32_t pm = __get_PRIMASK();
+	__disable_irq();
+	if (rqNext(g_rqHead[slot]) == g_rqTail[slot]) {
+		g_rqHead[slot] = (uint8_t)((g_rqHead[slot] + RELAY_QLEN - 1) %
+					   RELAY_QLEN);
+		g_relayDrops++;
+	}
+	uint8_t t = (uint8_t)((g_rqTail[slot] + RELAY_QLEN - 1) % RELAY_QLEN);
+	g_rq[slot][t] = m;
+	g_rqTail[slot] = t;
+	__set_PRIMASK(pm);
 }
 void relayClearSlot(uint8_t slot)
 {
@@ -705,6 +724,9 @@ static bool hdToneWant(uint16_t amplitude, uint16_t hz, int8_t *gain)
 // one full band at 100% grip strength; two full bands reach full scale
 #define HD_PCM_GAIN 0.5f
 #define HD_PCM_HANG_MS 500u
+// The grips can still be sounding this long after the last loud sample: ~40 ms pre-buffer plus 60-85 ms of
+// play-out once frames stop (PROTOCOL.md section 9.1). Past it there is nothing for op 1 to trim.
+#define HD_PCM_TAIL_MS 150u
 struct HdPcmState {
 	float phase[4];
 	uint32_t clockUs;
@@ -716,11 +738,12 @@ struct HdPcmState {
 };
 static HdPcmState g_hdPcmState[NSLOT];
 
-static void hdPcmStop(uint8_t slot)
+// trim: send op 1 to cut the tail the controller would otherwise play out. A stream that is already silent just
+// stops sending frames and runs dry on its own, as the DualSense wave stream does.
+static void hdPcmStop(uint8_t slot, bool trim)
 {
 	HdPcmState &p = g_hdPcmState[slot];
-	if (p.on) {
-		// op 1 trims the tail the controller would otherwise play out
+	if (p.on && trim) {
 		static const uint8_t off[3] = { 1, 2, 0 };
 		relayEnqueue(0x86, off, sizeof off, true, slot);
 	}
@@ -737,7 +760,7 @@ static void hdPcmRun(uint8_t slot, const uint16_t bands[4],
 		p = {};
 		p.on = true;
 		p.clockUs = nowUs;
-		p.fmtMs = nowMs;
+		p.fmtMs = p.activeMs = nowMs;
 	} else if (nowMs - p.fmtMs >= 1000u) {
 		hapticPcmStart(slot);
 		p.fmtMs = nowMs;
@@ -781,16 +804,20 @@ static void hdPcmRun(uint8_t slot, const uint16_t bands[4],
 	}
 }
 
+// Stop messages go only to actuators that may still be playing: a -128 dB cut or an op 1 sent to an idle one
+// plays as a click of its own, at a strength no rumble setting changes.
 static void hdStop(uint8_t slot)
 {
 	hapticCancelPendingOn(slot);
+	bool padOn = g_hdRumble[slot].tone[1].on || g_hdRumble[slot].tone[3].on;
 	// Two cut copies reduce the chance that RF loss stretches the tail.
-	for (uint8_t n = 0; n < 2; n++)
+	for (uint8_t n = 0; padOn && n < 2; n++)
 		hdToneSend(slot, HSIDE_PADS, HD_CUT_DB, 160, 30);
 	g_hdRumble[slot].active = false;
 	for (uint8_t k = 0; k < 4; k++)
 		g_hdRumble[slot].tone[k].on = false;
-	hdPcmStop(slot);
+	hdPcmStop(slot,
+		  millis() - g_hdPcmState[slot].activeMs < HD_PCM_TAIL_MS);
 }
 
 static void hapticHdTask()
@@ -935,7 +962,7 @@ void rfConnQueueHapticRelay()
 // rfConnFlushRelay(ch, s1): drain one entry from the current slot's relay queue and TX it. Each slot's queue
 // is independent, so each controller only sees its own commands. With N connected slots the per-slot relay
 // rate is 1/N of the per-cycle rate; sustained buzz streams are still 1 packet/cycle/slot.
-bool rfConnFlushRelay(uint8_t ch, uint8_t s1)
+bool rfConnFlushRelay(uint8_t ch, uint8_t s1, bool *requeued)
 {
 	int cur = (g_curSlot >= 0 && g_curSlot < NSLOT) ? g_curSlot : 0;
 	// Snapshot one entry under a short critical section. relayEnqueue() (the producer) runs on the
@@ -1041,8 +1068,19 @@ bool rfConnFlushRelay(uint8_t ch, uint8_t s1)
 					      400); // reply harvested as input
 			// PCM mode/sample streams (0x86-0x89) underrun audibly when a frame is lost. Resend an
 			// unanswered one once with the SAME PID: ESB dedup drops it if the first copy landed.
-			if (!rx && m.isHaptic && m.rid >= 0x86 && m.rid <= 0x89)
-				rfConnTx(ch, s1, p, plen, 400);
+			bool pcm = m.isHaptic && m.rid >= 0x86 && m.rid <= 0x89;
+			if (!rx && pcm)
+				rx = rfConnTx(ch, s1, p, plen, 400);
+			// Still unanswered: retry on the next cycles. A stream keeps a fixed fill once it starts, so a
+			// lost frame takes its samples out of that cushion for good, and two or three run it dry. If
+			// only the ACK was lost, the retry lands a duplicate: ~8 ms of extra fill until the stream
+			// next stops.
+			if (!rx && pcm && m.tries < PCM_RELAY_RETRIES) {
+				m.tries++;
+				relayRequeue((uint8_t)cur, m);
+				if (requeued)
+					*requeued = true;
+			}
 		}
 	}
 	return have; // true = a relay frame went out this cycle (its reply is harvested as input, above)
