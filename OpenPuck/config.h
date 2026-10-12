@@ -199,6 +199,9 @@ extern uint8_t
 extern uint8_t g_rumble;
 // 1 = audio-driven haptics on (default), 0 = silenced for DualSense UAC1 audio
 extern uint8_t g_audioHaptics;
+// 1 = Switch Pro mode renders the console's HD rumble (default), 0 = its rumble plays as plain motor rumble, shaped by
+// the host-rumble style and strength like every other mode
+extern uint8_t g_switchHd;
 // Audio-driven haptic gain: 0 = auto (default, see ps5AudioTask), else a fixed 10-500%
 extern uint16_t g_audioHapticGain;
 // How audio-driven haptics drive the controller (see ps5AudioTask)

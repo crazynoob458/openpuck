@@ -637,8 +637,8 @@ bool hapticSteamRumble(uint16_t lowFreq, uint16_t highFreq, uint8_t slot)
 {
 	if (slot >= NSLOT)
 		return false;
-	// Switch Pro always renders HD rumble; the styles apply to every other mode
-	if (g_usbMode == MODE_SW_PRO) {
+	// Switch Pro renders HD rumble unless it is off; the styles apply to every other mode
+	if (g_usbMode == MODE_SW_PRO && g_switchHd) {
 		hapticSwitchHd(slot, lowFreq, lowFreq, highFreq, highFreq);
 		return true;
 	}
@@ -875,8 +875,9 @@ static void hapticHdTask()
 		__set_PRIMASK(pm);
 		uint8_t style = g_typeHapticStyle[ET_SWITCH];
 		bool wave = style == AUDIO_STYLE_WAVE;
-		bool enabled = g_usbMode == MODE_SW_PRO && g_rumble &&
-			       g_hapticRelay && !USBDevice.suspended();
+		bool enabled = g_usbMode == MODE_SW_PRO && g_switchHd &&
+			       g_rumble && g_hapticRelay &&
+			       !USBDevice.suspended();
 		bool on = snapshot.bands[0] || snapshot.bands[1] ||
 			  snapshot.bands[2] || snapshot.bands[3];
 		if (on)

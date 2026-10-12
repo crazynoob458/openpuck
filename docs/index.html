@@ -296,7 +296,7 @@
         <!-- firmware >= v22: Switch Pro HD trackpad strength (field 141); the grip limiter and haptics style are per type, in the Switch and DS5 tabs -->
         <div id="hapticPcmBlock" class="hide">
           <div class="row"><label>HD trackpad strength</label><select id="hdPadScale"></select></div>
-          <p class="note">Switch Pro mode plays the console's HD rumble. The high band of each side plays as a tone on that side's trackpad (at the HD trackpad strength); the grips follow the Switch tab's haptics style, at the strength above. The grip limiter, set per type in the Switch and DS5 tabs, rounds off loud peaks on the grips in the wave style so they don't clip into pops.</p>
+          <p class="note">Switch Pro mode plays the console's HD rumble. The high band of each side plays as a tone on that side's trackpad (at the HD trackpad strength); the grips follow the Switch tab's haptics style, at the strength above. The Switch tab's HD Rumble toggle turns all of this off: the console's rumble then plays as plain motor rumble, shaped by the Style and Strength above. The grip limiter, set per type in the Switch and DS5 tabs, rounds off loud peaks on the grips in the wave style so they don't clip into pops.</p>
         </div>
         <div class="row" style="margin:10px 0 0"><button id="rumbleTest">Test rumble</button>
           <span class="note" style="flex:1">Buzzes every connected controller for half a second at the settings above, so you can compare styles without launching a game.</span></div>
@@ -669,7 +669,7 @@ function setTab(et){
     tab.innerHTML='<span>'+def.name+'</span><span class="active-dot" style="display:none;font-size:11px;color:var(--acc)"> ●</span>';
     tab.onclick=()=>setTab(et); bar.appendChild(tab);
     const sec=document.createElement("div"); sec.style.cssText="background:#0e1017;border:1px solid #232a3a;border-radius:8px;padding:12px 14px;display:none";
-    const rec={sec,tab,activeDot:tab.querySelector(".active-dot"),back:[],qam:null,abSwap:null,pad:null,led:null,ledV:null,rumble:null,audioHaptics:null,audioStyle:null,knee:null,audioGain:null,audioGainV:null,padStick:[]};
+    const rec={sec,tab,activeDot:tab.querySelector(".active-dot"),back:[],qam:null,abSwap:null,pad:null,led:null,ledV:null,rumble:null,audioHaptics:null,hdRumble:null,hdRumbleLbl:null,audioStyle:null,knee:null,audioGain:null,audioGainV:null,padStick:[]};
     // A/B swap + trackpad haptics + rumble toggles
     const tog=document.createElement("div"); tog.className="row"; tog.style.cssText="display:flex;align-items:center;gap:8px 10px;margin:12px 0;flex-wrap:wrap";
     const abLbl=document.createElement("label"); abLbl.textContent="A/B + X/Y swap"; abLbl.style.cssText="flex:0 0 auto;margin:0"; tog.appendChild(abLbl);
@@ -683,6 +683,13 @@ function setTab(et){
       const aud=document.createElement("button"); aud.textContent="on"; tog.appendChild(aud);
       rec.audioHaptics=aud;
       aud.onclick=()=>{ const on=aud.classList.contains("active"); setField(31, on?0:1); };
+    }
+    if(def.key==="SWITCH"){
+      // Switch Pro HD rumble (field 128): off plays the console's rumble as plain motor rumble
+      const hdLbl=document.createElement("label"); hdLbl.textContent="HD Rumble"; hdLbl.style.cssText="flex:0 0 auto;margin:0 0 0 6px"; tog.appendChild(hdLbl);
+      const hd=document.createElement("button"); hd.textContent="on"; tog.appendChild(hd);
+      rec.hdRumble=hd; rec.hdRumbleLbl=hdLbl;
+      hd.onclick=()=>{ const on=hd.classList.contains("active"); setField(128, on?0:1); };
     }
     sec.appendChild(tog);
     rec.abSwap=ab; rec.pad=pad; rec.rumble=rumble;
@@ -1205,10 +1212,22 @@ function applyBlob(p){
         // older firmware has no Switch style
         rec.audioStyle.disabled = !g_perTypeHaptics && et!==3;
       }
+      if(rec.hdRumble){
+        // payload p[207] = firmware p[209]; older firmware has no toggle and always renders HD
+        const cap=p.length>207, on=cap?(p[207]!==0):true;
+        rec.hdRumble.style.display=rec.hdRumbleLbl.style.display=cap?"":"none";
+        rec.hdRumble.textContent=on?"on":"off";
+        rec.hdRumble.classList.toggle("active",on);
+      }
       if(rec.knee){
         const k = g_perTypeHaptics ? p[199+et] : p[197];
         if(document.activeElement!==rec.knee) rec.knee.value=HAPTIC_KNEES.reduce((a,b)=>Math.abs(b-k)<Math.abs(a-k)?b:a);
         rec.knee.disabled = !pcmCap;
+      }
+      // with HD rumble off the Switch plays plain rumble, which the style and limiter don't touch
+      if(rec.hdRumble && p.length>207 && p[207]===0){
+        if(rec.audioStyle) rec.audioStyle.disabled=true;
+        if(rec.knee) rec.knee.disabled=true;
       }
       if(rec.audioGain && p.length>194){
         const gain = p[194]*2;

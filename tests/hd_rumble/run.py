@@ -31,6 +31,7 @@ unsigned long g_rumble80Ms[4]={};bool g_rumble80On[4]={};
 // fork: merged legacy/audio rumble path (hapticUpdateRumble)
 #define RUMBLE_THROTTLE_MS 20u
 uint8_t g_audioHaptics=1;
+uint8_t g_switchHd=1;
 uint8_t g_hapticLimitKnee=100; // 100 = limiter off: these checks are about the HD rumble path, not the knee
 #define ET_SWITCH 1
 #define AUDIO_STYLE_RUMBLE 0
@@ -58,7 +59,7 @@ uint8_t hapticUlaw(float x){return x>0.001f?1:(x<-0.001f?2:0);}
 }
 uint8_t jcBondOf(uint8_t slot){return (slot+3)%4;}
 uint16_t word(const Msg&m,int off){assert(off+1<int(m.p.size()));return m.p[off]|(m.p[off+1]<<8);}
-void reset(){messages.clear();keepPcm=false;for(int i=0;i<4;i++){g_hdPcmState[i]={};g_hdRumble[i]={};g_rumble80On[i]=false;g_rumble80Ms[i]=0;g_legacyLow[i]=g_legacyHigh[i]=g_audioLow[i]=g_audioHigh[i]=g_lastSentLow[i]=g_lastSentHigh[i]=0;blocked[i]=false;}now=100;g_rumbleStyle=0;g_usbMode=4;g_rumble=1;g_rumbleScale=100;g_hdPadScale=100;g_typeHapticStyle[ET_SWITCH]=AUDIO_STYLE_WAVE;USBDevice.sleep=false;}
+void reset(){messages.clear();keepPcm=false;for(int i=0;i<4;i++){g_hdPcmState[i]={};g_hdRumble[i]={};g_rumble80On[i]=false;g_rumble80Ms[i]=0;g_legacyLow[i]=g_legacyHigh[i]=g_audioLow[i]=g_audioHigh[i]=g_lastSentLow[i]=g_lastSentHigh[i]=0;blocked[i]=false;}now=100;g_rumbleStyle=0;g_usbMode=4;g_rumble=1;g_rumbleScale=100;g_hdPadScale=100;g_typeHapticStyle[ET_SWITCH]=AUDIO_STYLE_WAVE;g_switchHd=1;USBDevice.sleep=false;}
 '''
 # reset needs the production type first.
 reset = head[head.index('void reset()'):]
@@ -198,6 +199,21 @@ test = '''int main(){
  // leaving wave for tone while the stream plays trims it with 0x86 op 1
  reset();keepPcm=true;hapticSwitchPitch(0,30000,0,0,0,160,320,160,320);hapticHdTask();now+=8;hapticHdTask();assert(g_hdPcmState[0].on);
  g_typeHapticStyle[ET_SWITCH]=AUDIO_STYLE_TONE;hapticHdTask();assert(!g_hdPcmState[0].on);{bool off=false;for(auto &m:messages)off|=m.rid==0x86 && m.p[0]==1;assert(off);}
+
+ // HD rumble off: the console's rumble plays as plain 0x80 motor rumble (each side's peak), never HD tones or PCM
+ reset();g_switchHd=0;hdrReset(0);
+ {uint32_t hdw=(1u<<30)|(1u<<25)|(1u<<20);for(int i=0;i<4;i++){packet[i+1]=(hdw>>(8*i))&255;packet[i+5]=packet[i+1];}
+  jcRumble(0,packet,9);hapticHdTask();assert(!g_hdRumble[0].active && count(0x83)==0 && count(0x86)==0 && count(0x88)==0);
+  assert(count(0x80)==1 && messages[0].slot==3 && messages[0].p[0]==4);
+  // an unchanged frame isn't relayed again
+  jcRumble(0,packet,9);assert(count(0x80)==1);}
+ reset();g_switchHd=0;hapticSteamRumble(32000,16000,1);hapticHdTask();assert(count(0x83)==0 && count(0x80)==1 && word(messages[0],3)==32000 && word(messages[0],6)==16000);
+ // turning it off mid-effect stops the HD pads
+ reset();hapticSwitchPitch(0,0,20000,0,30000,160,440,160,330);hapticHdTask();assert(g_hdRumble[0].active);
+ g_switchHd=0;hapticHdTask();assert(!g_hdRumble[0].active && count(0x83,HSIDE_PADS,-128)==2);
+ // and back on, the first frame after plain rumble still goes out
+ reset();g_switchHd=0;hdrReset(0);{uint32_t hdw=(1u<<30)|(1u<<25)|(1u<<20);for(int i=0;i<4;i++){packet[i+1]=(hdw>>(8*i))&255;packet[i+5]=packet[i+1];}
+  jcRumble(0,packet,9);g_switchHd=1;jcRumble(0,packet,9);g_switchHd=0;auto n=count(0x80);jcRumble(0,packet,9);assert(count(0x80)==n+1);}
 
  uint32_t rng=7;hdrReset(0);
  for(int n=0;n<10000;n++){rng=rng*1664525u+1013904223u;for(int i=0;i<4;i++)b[i]=(rng>>(8*i))&255;hdrDecode(0,0,b,&lo,&hi);}

@@ -105,8 +105,8 @@ static bool boardCommand(uint8_t op)
 //                 soft-limit knee percent (field 115); p[200] Switch Pro HD trackpad strength as PERCENT/2
 //                 (field 141); p[201..204] grip limiter knee per type (fields 120..123), p[205..208] haptic style
 //                 per type (fields 124..127); p[198] / p[199] stay the DualSense's style and the active type's
-//                 knee for older panels]
-#define WB_PAYLEN 207
+//                 knee for older panels; p[209] Switch Pro HD rumble on/off (field 128)]
+#define WB_PAYLEN 208
 // The blob send is drop-on-full (never blocks loop), so the vendor TX FIFO MUST be able to hold a whole blob
 // -- otherwise tud_vendor_write_available() never reaches the frame size and EVERY frame is dropped (blank
 // panel / stale mappings). The Makefile sets -DCFG_TUD_VENDOR_TX_BUFSIZE=256; guard it here so a build without
@@ -348,6 +348,7 @@ static void webusbSendBlob()
 		p[201 + et] = g_typeLimitKnee[et];
 		p[205 + et] = g_typeHapticStyle[et];
 	}
+	p[209] = g_switchHd;
 	// CRITICAL: usb_web.write() SPINS (`while (remain && _connected) yield();`) until the IN FIFO drains or the
 	// panel disconnects. If the panel holds the WebUSB interface open but stops reading its IN endpoint -- a
 	// backgrounded tab, or the host briefly not servicing transferIn under load -- the FIFO never empties and
@@ -1111,6 +1112,11 @@ void webusbPoll()
 					g_swGyroLegacy = v ? 1 : 0;
 					swProSaveCfg();
 					persist = false;
+					break;
+
+				// Switch Pro HD rumble toggle (0 = plain rumble, 1 = HD). Protocol v22.
+				case 128:
+					g_switchHd = v ? 1 : 0;
 					break;
 
 				// DualSense audio-driven haptics toggle (0 = off, 1 = on)

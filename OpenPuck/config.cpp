@@ -52,6 +52,7 @@ uint8_t g_qamMap = 0;
 uint8_t g_padHaptics = 1;
 uint8_t g_rumble = 1;
 uint8_t g_audioHaptics = 1;
+uint8_t g_switchHd = 1;
 uint16_t g_audioHapticGain = 0;
 uint8_t g_audioHapticStyle = AUDIO_STYLE_WAVE;
 uint8_t g_hapticLimitKnee = HAPTIC_LIMIT_KNEE_DEFAULT;
@@ -164,6 +165,8 @@ struct Cfg {
 	uint8_t typeLimitKnee[ET_COUNT], typeHapticStyle[ET_COUNT];
 	// per-type grip rumble strength as percent/2; 0xFF (an older file) -> see loadCfg
 	uint8_t typeRumbleScale2[ET_COUNT];
+	// Switch Pro HD rumble on/off; anything but 0/1 (an older file) -> on
+	uint8_t switchHd;
 }; // rsvd0 = ex-padSmooth, now the one-shot debug-CDC arm
 
 // Shortest cfg.bin we still accept: the layout as of CFG_MAGIC 0xCF, i.e. everything before the appended tail.
@@ -200,7 +203,8 @@ void saveCfg()
 		  (uint8_t)(g_hdPadScale / 2),
 		  {},
 		  {},
-		  {} };
+		  {},
+		  g_switchHd };
 	for (int i = 0; i < ET_COUNT; i++) {
 		c.type[i] = g_type[i];
 		c.typeLimitKnee[i] = g_typeLimitKnee[i];
@@ -315,6 +319,8 @@ void loadCfg()
 			}
 			if (c.audioHaptics <= 1)
 				g_audioHaptics = c.audioHaptics;
+			if (c.switchHd <= 1)
+				g_switchHd = c.switchHd;
 			// A file without the grip-limiter byte was saved by a build that predates the wave style, so its
 			// style is that build's default (tone) rather than a choice: skip it once and land on wave.
 			if (c.hapticKnee >= 50 && c.hapticKnee <= 100 &&

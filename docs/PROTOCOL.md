@@ -456,6 +456,8 @@ Messages:
     stronger band as a grip tone, split plays the low band as `0x80` rumble and the high band as a grip tone, rumble
     plays the stronger band as `0x80`. The pads always play the high band as tones. `115` and `88` are the older
     shared forms: `115` sets both types' knee and `88` the DualSense's style.
+    `128` (blob version ≥ 22): Switch Pro HD rumble on/off (default on). Off plays the console's rumble as plain
+    `0x80` motor rumble, each side's peak, shaped by `39` and `22` like any other mode.
     `141` (blob version ≥ 22): Switch Pro HD rumble trackpad strength as percent/2 (0-500%, 100 default;
     0 = grips only).
   - `0x03 <mode>`: switch mode and reboot
@@ -544,7 +546,8 @@ From version 21, payload byte 193 (`p[195]`) is the rumble style. From version 2
 haptics style, the grip-limiter knee in percent, and the Switch Pro HD trackpad strength as percent/2. Payload
 bytes 199..202 (`p[201..204]`) are the grip-limiter knee per type, and 203..206 (`p[205..208]`) the haptic style per
 type, both indexed by emulated type (Xbox, Switch, DS4, DS5); `p[198]` and `p[199]` remain the DualSense's style and
-the active type's knee. They sit inside version 22 (not bumped).
+the active type's knee. Payload byte 207 (`p[209]`) is Switch Pro HD rumble on/off. They sit inside version 22
+(not bumped).
 
 
 ### 10.1 Backup / clone (bond export & import)
