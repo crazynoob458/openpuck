@@ -381,6 +381,10 @@ PCM streaming, measured with the controller's IMU over USB (2026-10-03):
 - Level: a u-law sample amplitude of about 0.4 (0.31 at 100 Hz, 0.49 at 320 Hz) matches a -3 dB `0x83` tone.
 - An 8 kHz stereo stream is 258 frames/s, above one relay per 4 ms poll. OpenPuck flushes a second queued relay in
   the same cycle when the ring holds a backlog, and resends an unanswered `0x86`-`0x89` frame once with the same PID.
+  A frame still unanswered goes back to the front of the ring for up to two later cycles: a lost frame would take its
+  samples out of the stream's fill for good, and two or three losses run it dry.
+- A stream that has gone silent is left to run dry. A `0x86` op 1 or a `-128 dB` `0x83` cut sent to an idle actuator
+  plays as a click, so OpenPuck sends them only while something may still be playing.
 
 OpenPuck uses this stream itself for the DualSense wave haptics style (DUALSENSE_HAPTICS.md) and for Switch Pro HD
 rumble (§9.5).
@@ -418,9 +422,9 @@ frequency updates for a low band (around 160 Hz) and a high band (around 320 Hz)
 SDL's encoder; codes above it play at full scale. OpenPuck renders the latest bands in the main loop
 (`hapticHdTask` in `haptics.cpp`), not per USB packet:
 
-- **Grips:** each side's low and high band, summed and phase-continuous, as a 4 kHz `0x88` PCM stream on that
+- **Grips** (wave style; the other styles are under field `124` + type): each side's low and high band, summed and phase-continuous, as a 4 kHz `0x88` PCM stream on that
   side's grip, where a Pro Controller has its actuators. Scaled by the rumble strength (field `22`) and rounded off
-  by the grip limiter (field `115`). The stream stays up through 500 ms of silence so a new effect doesn't pay the
+  by the grip limiter (field `120` + type). The stream stays up through 500 ms of silence so a new effect doesn't pay the
   controller's pre-buffer again, and ends with `0x86` op 1.
 - **Trackpads:** each side's high band as an `0x83` tone on that side's trackpad, scaled by the HD trackpad
   strength (field `141`) and held at or below -15 dB between 250 and 300 Hz, where the pads ring loudly. Tones
@@ -439,14 +443,23 @@ Messages:
 - Host to device:
   - `0x01`: get status blob
   - `0x02 <field> <value>`: set one field. Notable fields: `22` host-rumble strength as **percent/2**
-    (10–500%, revived in blob version 21), `39` host-rumble style (`RUMBLE_STYLE_*` in `haptics.h`:
+    (10–500%, revived in blob version 21), kept per emulated type (200% by default, 100% for the Switch; the write
+    edits the active type's, and `p[53]` reads it). `108` + type (blob version ≥ 22) edits any type's, and
+    payload bytes 208..211 (`p[210..213]`) read them. The Switch keeps a second one for HD rumble off (200%); both
+    fields address whichever applies to its HD rumble setting, `39` host-rumble style (`RUMBLE_STYLE_*` in `haptics.h`:
     0 normal, 1 mono, 2 heavy, 3 light, 4 swapped, 5 punchy, 6 soft; not used in Switch Pro mode, which
     renders HD rumble, §9.5), `38` Switch Pro gyro mapping.
     DualSense audio haptics: `31` on/off, `30` gain as percent/2 (10-500%, 0 = automatic), `88` style
     (0 rumble, 1 tone, 2 split, 3 wave; default 3). See DUALSENSE_HAPTICS.md.
     Grip limiter (blob version ≥ 22): `115` soft-limit knee of the grip PCM stream, percent of full scale,
-    50..100 (70 default, 100 = off: hard clip only); other values are ignored. One setting for the DualSense
-    wave style and Switch Pro HD rumble grips.
+    50..100 (70 default, 100 = off: hard clip only); other values are ignored. Per type, only for the Switch
+    (type 1) and the DualSense (type 3): `120 + type` is the knee and `124 + type` the haptic style (as `88`).
+    Switch Pro HD rumble plays its grips in that style (tone by default; every other type starts on wave): wave streams the bands as PCM, tone plays each side's
+    stronger band as a grip tone, split plays the low band as `0x80` rumble and the high band as a grip tone, rumble
+    plays the stronger band as `0x80`. The pads always play the high band as tones. `115` and `88` are the older
+    shared forms: `115` sets both types' knee and `88` the DualSense's style.
+    `128` (blob version ≥ 22): Switch Pro HD rumble on/off (default on). Off plays the console's rumble as plain
+    `0x80` motor rumble, each side's peak, shaped by `39` and `22` like any other mode.
     `141` (blob version ≥ 22): Switch Pro HD rumble trackpad strength as percent/2 (0-500%, 100 default;
     0 = grips only).
   - `0x03 <mode>`: switch mode and reboot
@@ -532,7 +545,11 @@ stick passes straight through. A mapped pad also stops reporting as a touchpad c
 
 From version 21, payload byte 193 (`p[195]`) is the rumble style. From version 22, payload bytes 194..198
 (`p[196..200]`) are the DualSense audio-haptic gain as percent/2 (0 = automatic), audio haptics on/off, audio
-haptics style, the grip-limiter knee in percent, and the Switch Pro HD trackpad strength as percent/2.
+haptics style, the grip-limiter knee in percent, and the Switch Pro HD trackpad strength as percent/2. Payload
+bytes 199..202 (`p[201..204]`) are the grip-limiter knee per type, and 203..206 (`p[205..208]`) the haptic style per
+type, both indexed by emulated type (Xbox, Switch, DS4, DS5); `p[198]` and `p[199]` remain the DualSense's style and
+the active type's knee. Payload byte 207 (`p[209]`) is Switch Pro HD rumble on/off. They sit inside version 22
+(not bumped).
 
 
 ### 10.1 Backup / clone (bond export & import)

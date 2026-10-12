@@ -110,6 +110,8 @@ struct RelayMsg {
 	bool expectReply;
 	// Correlates a queued response request with the host transaction that created it.
 	uint32_t queryGeneration;
+	// later poll cycles this PCM frame was retried on after going unanswered
+	uint8_t tries;
 };
 // deep enough to hold a full Steam settings/LED transaction burst without loss
 #define RELAY_QLEN 32
@@ -188,6 +190,7 @@ bool relayEnqueue(uint8_t rid, const uint8_t *payload, uint8_t plen,
 		g_rq[s][h].queryGeneration =
 			expectReply ? g_slot[s].queryHostGeneration : 0u;
 		g_rq[s][h].isHaptic = isHaptic;
+		g_rq[s][h].tries = 0;
 		if (plen)
 			memcpy(g_rq[s][h].data, payload, plen);
 		g_rqHead[s] = nx;
@@ -196,6 +199,50 @@ bool relayEnqueue(uint8_t rid, const uint8_t *payload, uint8_t plen,
 	__set_PRIMASK(pm);
 	faultDiagTrace(FR_RELAY, (uint16_t)((slot << 8) | rid));
 	return true;
+}
+bool relayEnqueueFront(uint8_t rid, const uint8_t *payload, uint8_t plen,
+		       bool isHaptic, uint8_t slot)
+{
+	if (slot >= NSLOT)
+		return false;
+	uint8_t cap = isHaptic ? RELAY_MAXP : RELAY_CMD_MAXP;
+	if (plen > cap)
+		plen = cap;
+	uint32_t pm = __get_PRIMASK();
+	__disable_irq();
+	// Full ring: drop the newest entry to make room, so the entries already waiting keep their order.
+	if (rqNext(g_rqHead[slot]) == g_rqTail[slot]) {
+		g_rqHead[slot] = (uint8_t)((g_rqHead[slot] + RELAY_QLEN - 1) %
+					   RELAY_QLEN);
+		g_relayDrops++;
+	}
+	uint8_t t = (uint8_t)((g_rqTail[slot] + RELAY_QLEN - 1) % RELAY_QLEN);
+	g_rq[slot][t].rid = rid;
+	g_rq[slot][t].len = plen;
+	g_rq[slot][t].expectReply = false;
+	g_rq[slot][t].isHaptic = isHaptic;
+	g_rq[slot][t].tries = 0;
+	if (plen)
+		memcpy(g_rq[slot][t].data, payload, plen);
+	g_rqTail[slot] = t;
+	__set_PRIMASK(pm);
+	faultDiagTrace(FR_RELAY, (uint16_t)((slot << 8) | rid));
+	return true;
+}
+// Put a consumed entry back at the front of its ring, ahead of everything queued after it.
+static void relayRequeue(uint8_t slot, const RelayMsg &m)
+{
+	uint32_t pm = __get_PRIMASK();
+	__disable_irq();
+	if (rqNext(g_rqHead[slot]) == g_rqTail[slot]) {
+		g_rqHead[slot] = (uint8_t)((g_rqHead[slot] + RELAY_QLEN - 1) %
+					   RELAY_QLEN);
+		g_relayDrops++;
+	}
+	uint8_t t = (uint8_t)((g_rqTail[slot] + RELAY_QLEN - 1) % RELAY_QLEN);
+	g_rq[slot][t] = m;
+	g_rqTail[slot] = t;
+	__set_PRIMASK(pm);
 }
 void relayClearSlot(uint8_t slot)
 {
@@ -585,7 +632,8 @@ bool hapticAudioTone(uint8_t side, int8_t gainDb, uint16_t freqHz,
 // queueing every host packet and keeps waveform generation off the input ISR.
 // HD Emulation streams each side's two bands, summed, as PCM to that side's grip (where a Pro Controller has its
 // actuators), and plays each side's high band as an 0x83 tone on that side's trackpad. Index k matches bands[]:
-// 0/2 left/right low band, 1/3 left/right high band; tone[] uses the pad entries only.
+// 0/2 left/right low band, 1/3 left/right high band; tone[1] and tone[3] are the pads' tones, tone[0] and tone[2]
+// the grips' in the tone and split styles.
 struct HdTone {
 	uint16_t hz;
 	int8_t gain;
@@ -642,8 +690,8 @@ bool hapticSteamRumble(uint16_t lowFreq, uint16_t highFreq, uint8_t slot)
 {
 	if (slot >= NSLOT)
 		return false;
-	// Switch Pro always renders HD rumble; the styles apply to every other mode
-	if (g_usbMode == MODE_SW_PRO) {
+	// Switch Pro renders HD rumble unless it is off; the styles apply to every other mode
+	if (g_usbMode == MODE_SW_PRO && g_switchHd) {
 		hapticSwitchHd(slot, lowFreq, lowFreq, highFreq, highFreq);
 		return true;
 	}
@@ -723,6 +771,43 @@ static bool hdToneWant(uint16_t amplitude, uint16_t hz, int8_t *gain)
 	return true;
 }
 
+// Keep one actuator's tone playing at `gain` dB and `hz`, or cut it once `want` is false.
+static void hdToneKeep(uint8_t slot, HdTone &t, uint8_t side, bool want,
+		       int8_t gain, uint16_t hz, unsigned long now)
+{
+	if (!want) {
+		if (t.on)
+			hdToneSend(slot, side, HD_CUT_DB, t.hz, 30);
+		t.on = false;
+		return;
+	}
+	unsigned long since = now - t.ms;
+	int step = gain - t.gain;
+	bool change = hz != t.hz || step >= HD_STEP_DB || step <= -HD_STEP_DB;
+	if (t.on && step < HD_HIT_DB && !(change && since >= HD_STEP_MS) &&
+	    since < HD_REFRESH_MS)
+		return;
+	hdToneSend(slot, side, gain, hz, HD_TONE_MS);
+	t = { hz, gain, true, now };
+}
+
+// Grip tone for a band level: its share of full scale at the grip strength, in dB up to 0, and silent under the
+// -60 dB the controller still renders.
+static bool hdGripToneWant(uint16_t amplitude, int8_t *gain)
+{
+	float level = amplitude * g_rumbleScale / (100.0f * 65535.0f);
+	if (level < 0.001f)
+		return false;
+	float db = 20.0f * log10f(level);
+	*gain = db >= 0.0f ? 0 : (int8_t)lroundf(db);
+	return true;
+}
+
+static uint16_t hdClampHz(uint16_t hz)
+{
+	return hz < 40 ? 40 : (hz > 1280 ? 1280 : hz);
+}
+
 // Grip renderer: each grip plays its side's low + high band summed, phase-continuous, at PCM_RATE_HZ on a
 // micros() sample clock. The stream stays up through silent gaps of HD_PCM_HANG_MS so a new effect doesn't pay
 // the controller's ~40 ms pre-buffer again; 0x86 re-states the format every second (it survives, but a
@@ -730,6 +815,9 @@ static bool hdToneWant(uint16_t amplitude, uint16_t hz, int8_t *gain)
 // one full band at 100% grip strength; two full bands reach full scale
 #define HD_PCM_GAIN 0.5f
 #define HD_PCM_HANG_MS 500u
+// The grips can still be sounding this long after the last loud sample: ~40 ms pre-buffer plus 60-85 ms of
+// play-out once frames stop (PROTOCOL.md section 9.1). Past it there is nothing for op 1 to trim.
+#define HD_PCM_TAIL_MS 150u
 struct HdPcmState {
 	float phase[4];
 	uint32_t clockUs;
@@ -741,11 +829,12 @@ struct HdPcmState {
 };
 static HdPcmState g_hdPcmState[NSLOT];
 
-static void hdPcmStop(uint8_t slot)
+// trim: send op 1 to cut the tail the controller would otherwise play out. A stream that is already silent just
+// stops sending frames and runs dry on its own, as the DualSense wave stream does.
+static void hdPcmStop(uint8_t slot, bool trim)
 {
 	HdPcmState &p = g_hdPcmState[slot];
-	if (p.on) {
-		// op 1 trims the tail the controller would otherwise play out
+	if (p.on && trim) {
 		static const uint8_t off[3] = { 1, 2, 0 };
 		relayEnqueue(0x86, off, sizeof off, true, slot);
 	}
@@ -762,7 +851,7 @@ static void hdPcmRun(uint8_t slot, const uint16_t bands[4],
 		p = {};
 		p.on = true;
 		p.clockUs = nowUs;
-		p.fmtMs = nowMs;
+		p.fmtMs = p.activeMs = nowMs;
 	} else if (nowMs - p.fmtMs >= 1000u) {
 		hapticPcmStart(slot);
 		p.fmtMs = nowMs;
@@ -806,18 +895,29 @@ static void hdPcmRun(uint8_t slot, const uint16_t bands[4],
 	}
 }
 
+// Stop messages go only to actuators that may still be playing: a -128 dB cut or an op 1 sent to an idle one
+// plays as a click of its own, at a strength no rumble setting changes.
 static void hdStop(uint8_t slot)
 {
 	hapticCancelPendingOn(slot);
+	bool padOn = g_hdRumble[slot].tone[1].on || g_hdRumble[slot].tone[3].on;
+	bool gripOn = g_hdRumble[slot].tone[0].on ||
+		      g_hdRumble[slot].tone[2].on;
 	// Two cut copies reduce the chance that RF loss stretches the tail.
-	for (uint8_t n = 0; n < 2; n++)
+	for (uint8_t n = 0; padOn && n < 2; n++)
 		hdToneSend(slot, HSIDE_PADS, HD_CUT_DB, 160, 30);
+	for (uint8_t n = 0; gripOn && n < 2; n++)
+		hdToneSend(slot, HSIDE_GRIPS, HD_CUT_DB, 160, 30);
 	g_hdRumble[slot].active = false;
 	for (uint8_t k = 0; k < 4; k++)
 		g_hdRumble[slot].tone[k].on = false;
-	hdPcmStop(slot);
+	hdPcmStop(slot,
+		  millis() - g_hdPcmState[slot].activeMs < HD_PCM_TAIL_MS);
 }
 
+// The Switch's haptic style (AUDIO_STYLE_*) sets how its grips play the two bands: wave streams them as PCM, tone
+// plays each side's stronger band as a tone, split plays the low band as 0x80 rumble and the high band as a tone,
+// rumble plays the stronger band as 0x80 rumble. The pads always play the high band as tones.
 static void hapticHdTask()
 {
 	unsigned long now = millis();
@@ -826,48 +926,79 @@ static void hapticHdTask()
 		__disable_irq();
 		HdRumbleState snapshot = g_hdRumble[slot];
 		__set_PRIMASK(pm);
-		bool enabled = g_usbMode == MODE_SW_PRO && g_rumble &&
-			       g_hapticRelay && !USBDevice.suspended();
+		uint8_t style = g_typeHapticStyle[ET_SWITCH];
+		bool wave = style == AUDIO_STYLE_WAVE;
+		bool enabled = g_usbMode == MODE_SW_PRO && g_switchHd &&
+			       g_rumble && g_hapticRelay &&
+			       !USBDevice.suspended();
 		bool on = snapshot.bands[0] || snapshot.bands[1] ||
 			  snapshot.bands[2] || snapshot.bands[3];
 		if (on)
 			g_hdPcmState[slot].activeMs = now;
+		// the style changed away from wave while a stream played
+		if (!wave && g_hdPcmState[slot].on)
+			hdPcmStop(slot, true);
 		// a silent gap keeps the grip stream (and its pre-buffer) alive for HD_PCM_HANG_MS
 		bool hang = g_hdPcmState[slot].on &&
 			    now - g_hdPcmState[slot].activeMs < HD_PCM_HANG_MS;
 		if (!enabled || (!on && !hang) ||
 		    now - snapshot.received > 600u || haptic82Blocked(slot)) {
-			if (snapshot.active)
+			if (snapshot.active) {
 				hdStop(slot);
+				if (g_rumble80On[slot])
+					hapticRumbleGrip(0, 0, slot);
+			}
 			continue;
 		}
 		g_hdRumble[slot].active = true;
 		// pads play each side's high band as tones
 		for (uint8_t k = 1; k < 4; k += 2) {
-			HdTone &t = g_hdRumble[slot].tone[k];
-			uint8_t side = HSIDE_LPAD + k / 2;
-			uint16_t hz = snapshot.frequencies[k];
-			hz = hz < 40 ? 40 : (hz > 1280 ? 1280 : hz);
+			uint16_t hz = hdClampHz(snapshot.frequencies[k]);
 			int8_t gain;
-			if (!hdToneWant(snapshot.bands[k], hz, &gain)) {
-				if (t.on)
-					hdToneSend(slot, side, HD_CUT_DB, t.hz,
-						   30);
-				t.on = false;
-				continue;
-			}
-			unsigned long since = now - t.ms;
-			int step = gain - t.gain;
-			bool change = hz != t.hz || step >= HD_STEP_DB ||
-				      step <= -HD_STEP_DB;
-			if (t.on && step < HD_HIT_DB &&
-			    !(change && since >= HD_STEP_MS) &&
-			    since < HD_REFRESH_MS)
-				continue;
-			hdToneSend(slot, side, gain, hz, HD_TONE_MS);
-			t = { hz, gain, true, now };
+			bool want = hdToneWant(snapshot.bands[k], hz, &gain);
+			hdToneKeep(slot, g_hdRumble[slot].tone[k],
+				   HSIDE_LPAD + k / 2, want, gain, hz, now);
 		}
-		hdPcmRun(slot, snapshot.bands, snapshot.frequencies, now);
+		if (wave) {
+			hdPcmRun(slot, snapshot.bands, snapshot.frequencies,
+				 now);
+			if (g_rumble80On[slot])
+				hapticRumbleGrip(0, 0, slot);
+			continue;
+		}
+		if (style == AUDIO_STYLE_TONE || style == AUDIO_STYLE_SPLIT) {
+			for (uint8_t side = 0; side < 2; side++) {
+				// tone: the stronger band; split: the high band
+				uint8_t k = side * 2 + 1;
+				if (style == AUDIO_STYLE_TONE &&
+				    snapshot.bands[k - 1] > snapshot.bands[k])
+					k--;
+				int8_t gain;
+				bool want = hdGripToneWant(snapshot.bands[k],
+							   &gain);
+				hdToneKeep(slot,
+					   g_hdRumble[slot].tone[side * 2],
+					   HSIDE_LGRIP + side, want, gain,
+					   hdClampHz(snapshot.frequencies[k]),
+					   now);
+			}
+		}
+		// 0x80 rumble: both bands' peak (rumble), the low bands (split), or nothing, which stops one the
+		// style just left
+		uint16_t left = 0, right = 0;
+		if (style == AUDIO_STYLE_RUMBLE) {
+			left = snapshot.bands[0] > snapshot.bands[1] ?
+				       snapshot.bands[0] :
+				       snapshot.bands[1];
+			right = snapshot.bands[2] > snapshot.bands[3] ?
+					snapshot.bands[2] :
+					snapshot.bands[3];
+		} else if (style == AUDIO_STYLE_SPLIT) {
+			left = snapshot.bands[0];
+			right = snapshot.bands[2];
+		}
+		if (left || right || g_rumble80On[slot])
+			hapticRumbleGrip(left, right, slot);
 	}
 }
 
@@ -1740,7 +1871,7 @@ bool rfConnFeatureTurnConsumed(uint8_t slot)
 {
 	return slot < NSLOT && g_featureTurnConsumed[slot] != 0;
 }
-bool rfConnFlushRelay(uint8_t ch, uint8_t s1)
+bool rfConnFlushRelay(uint8_t ch, uint8_t s1, bool *requeued)
 {
 	int cur = (g_curSlot >= 0 && g_curSlot < NSLOT) ? g_curSlot : 0;
 	bool quiesceDeferred = false;
@@ -2443,12 +2574,19 @@ bool rfConnFlushRelay(uint8_t ch, uint8_t s1)
 				}
 			} else {
 				uint8_t rx = rfConnTx(ch, s1, p, plen, 400);
+				bool pcm = m.isHaptic && m.rid >= 0x86 &&
+					   m.rid <= 0x89;
 				// PCM mode/sample streams (0x86-0x89) underrun audibly when a frame is lost.
 				// Resend an unanswered one once with the SAME PID: ESB dedup drops it if the
 				// first copy landed.
-				if (!rx && m.isHaptic && m.rid >= 0x86 &&
-				    m.rid <= 0x89)
-					rfConnTx(ch, s1, p, plen, 400);
+				if (!rx && pcm)
+					rx = rfConnTx(ch, s1, p, plen, 400);
+				if (!rx && pcm && m.tries < PCM_RELAY_RETRIES) {
+					m.tries++;
+					relayRequeue((uint8_t)cur, m);
+					if (requeued)
+						*requeued = true;
+				}
 			}
 			// Preserve one-feature-turn ownership. Only unresolved
 			// co-framed queries enter the normal split-FETCH fallback path.

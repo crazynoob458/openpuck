@@ -72,6 +72,10 @@ void hapticTestRumble();
 // that nothing will ever wait on a reply for. rfConnFlushRelay uses this.
 bool relayEnqueue(uint8_t rid, const uint8_t *payload, uint8_t plen,
 		  bool isHaptic, uint8_t slot = 0xFF, bool expectReply = false);
+// Same as relayEnqueue for one bond slot, but the message is sent next instead of last. For latency-sensitive
+// one-shots (trackpad click pulse) that would otherwise wait behind queued PCM stream frames. ISR-safe.
+bool relayEnqueueFront(uint8_t rid, const uint8_t *payload, uint8_t plen,
+		       bool isHaptic, uint8_t slot);
 // Drop everything queued for one bond slot. Called when a slot becomes BONDED (Steam's 0xA2 pairing write,
 // the panel's bond import): whatever was queued while the slot was empty was aimed at a controller that no
 // longer -- or never did -- live there, and an unbonded slot's ring is never flushed, so it would otherwise
@@ -251,8 +255,10 @@ void hapticStabTask();
 
 void rfConnQueueHapticRelay();
 // returns true if a relay frame was actually transmitted this call (queue had an entry), so the poll loop can
-// count relay TXs separately from poll cycles.
-bool rfConnFlushRelay(uint8_t ch, uint8_t s1);
+// count relay TXs separately from poll cycles. *requeued is set when an unanswered PCM frame went back on the
+// ring for a later cycle.
+#define PCM_RELAY_RETRIES 2u
+bool rfConnFlushRelay(uint8_t ch, uint8_t s1, bool *requeued = nullptr);
 // Defer only a different response-bearing command after a consumed query.
 #define FEATURE_CROSS_COMMAND_QUIESCE_MS 24u
 // One delayed response-retrieval probe; the original query and its 80-ms deadline are unchanged.
@@ -309,7 +315,6 @@ bool pcmSessionActive(uint8_t slot);
 bool pcmAnyActive(void);
 bool pcmRelayPending(uint8_t slot);
 bool pcmRelayNeedsStandalone(uint8_t slot);
-
 // times a relay-ring drain hit its iteration cap (head/tail desync or corruption) -- non-zero means we caught
 // and recovered from what would otherwise be an IRQ-off watchdog hang. Surfaced on the WebUSB panel.
 extern volatile uint16_t g_ringFault;

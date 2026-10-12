@@ -417,6 +417,9 @@ static uint16_t hdrDecode(uint8_t slot, uint8_t motor, const uint8_t b[4],
 		*high = peakHigh;
 	return peak;
 }
+static uint16_t g_jcLastLo[NSLOT] = { 0 };
+static uint16_t g_jcLastHi[NSLOT] = { 0 };
+static bool g_jcLastSet[NSLOT] = { false };
 // HD rumble: publish each side's two bands with their frequencies; hapticTask renders them on the grips (PCM)
 // and trackpads (0x83 tones), routed to the mapped controller. Every frame is published -- the renderer keeps
 // its own pacing, so the console's per-frame stream never floods the RF relay.
@@ -424,6 +427,22 @@ static void jcRumble(uint8_t slot, const uint8_t *p, uint16_t pn)
 {
 	if (pn < 9)
 		return; // [timer][left rumble x4][right rumble x4]
+	if (!g_switchHd) {
+		// plain rumble: each side's peak, relayed only on change -- the console streams every frame, and
+		// re-sending unchanged values would flood the RF relay
+		uint16_t lo = hdrDecode(slot, 0, p + 1),
+			 hi = hdrDecode(slot, 1, p + 5);
+		if (g_jcLastSet[slot] && lo == g_jcLastLo[slot] &&
+		    hi == g_jcLastHi[slot])
+			return;
+		g_jcLastSet[slot] = true;
+		g_jcLastLo[slot] = lo;
+		g_jcLastHi[slot] = hi;
+		hapticSteamRumble(lo, hi, jcBondOf(slot));
+		return;
+	}
+	// a switch back to plain rumble must resend the first value
+	g_jcLastSet[slot] = false;
 	hdrDecode(slot, 0, p + 1);
 	hdrDecode(slot, 1, p + 5);
 	const HdrBands &left = g_hdrState[slot][0];

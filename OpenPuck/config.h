@@ -169,6 +169,18 @@ struct TypeCfg {
 	uint8_t rumble;
 };
 extern TypeCfg g_type[ET_COUNT];
+// Per-type grip rumble strength (percent). g_rumbleScale is the active type's live copy (applyActiveType); an
+// edit to it is kept with rumbleStoreActive().
+extern uint16_t g_typeRumbleScale[ET_COUNT];
+// what each type starts with, and what a config that predates its own value falls back to
+extern const uint16_t g_typeRumbleScaleDefault[ET_COUNT];
+// The Switch's strength with HD rumble off. Plain motor rumble needs the 200% the other types start with, where
+// the HD tones want 100%, so the two are kept apart: g_rumbleScale is whichever applies to the active type.
+extern uint16_t g_switchPlainScale;
+void rumbleStoreActive();
+// A type's grip strength as the panel edits it: the Switch's is whichever of its two applies to the HD rumble setting
+uint16_t rumbleScaleOf(uint8_t et);
+void rumbleScaleSet(uint8_t et, uint16_t pct);
 
 // Trackpad mapping, per emulated type: {left pad, right pad}. Values:
 //   PS_OFF / PS_LEFT / PS_RIGHT = stick mapping
@@ -197,6 +209,9 @@ extern uint8_t
 extern uint8_t g_rumble;
 // 1 = audio-driven haptics on (default), 0 = silenced for DualSense UAC1 audio
 extern uint8_t g_audioHaptics;
+// 1 = Switch Pro mode renders the console's HD rumble (default), 0 = its rumble plays as plain motor rumble, shaped by
+// the host-rumble style and strength like every other mode
+extern uint8_t g_switchHd;
 // Audio-driven haptic gain: 0 = auto (default, see ps5AudioTask), else a fixed 10-500%
 extern uint16_t g_audioHapticGain;
 // How audio-driven haptics drive the controller (see ps5AudioTask)
@@ -208,9 +223,19 @@ extern uint16_t g_audioHapticGain;
 #define AUDIO_STYLE_WAVE 3
 extern uint8_t g_audioHapticStyle;
 // Grip PCM soft-limit knee (DualSense wave style, Switch Pro HD grips), percent of full scale: 50..100, 70 default.
-// Peaks above it are rounded off toward full scale; 100 leaves only the hard clip at full scale.
+// Peaks above it are rounded off toward full scale; 100 leaves only the hard clip at full scale. Each emulated type
+// keeps its own (g_typeLimitKnee); g_hapticLimitKnee is the active type's live copy (applyActiveType).
 #define HAPTIC_LIMIT_KNEE_DEFAULT 70u
 extern uint8_t g_hapticLimitKnee;
+extern uint8_t g_typeLimitKnee[ET_COUNT];
+// Haptic style per emulated type (AUDIO_STYLE_*): how the DualSense (ET_DS5) plays its audio haptics and how the
+// Switch (ET_SWITCH) plays HD rumble on the grips. The other types ignore it. g_audioHapticStyle is the DS5 entry.
+extern uint8_t g_typeHapticStyle[ET_COUNT];
+// the types that have a grip limiter and a haptic style
+static inline bool hapticTypeHasStyle(uint8_t et)
+{
+	return et == ET_SWITCH || et == ET_DS5;
+}
 // LED brightness for the active emulated type (0 = no override, 1-100 = brightness %)
 extern uint8_t g_ledBright;
 // Live mirror of g_padStickCfg[g_etype]: {left pad, right pad} -> stick (PS_*).

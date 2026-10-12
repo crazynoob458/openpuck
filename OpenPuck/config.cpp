@@ -52,9 +52,67 @@ uint8_t g_qamMap = 0;
 uint8_t g_padHaptics = 1;
 uint8_t g_rumble = 1;
 uint8_t g_audioHaptics = 1;
+uint8_t g_switchHd = 1;
 uint16_t g_audioHapticGain = 0;
 uint8_t g_audioHapticStyle = AUDIO_STYLE_WAVE;
 uint8_t g_hapticLimitKnee = HAPTIC_LIMIT_KNEE_DEFAULT;
+uint8_t g_typeLimitKnee[ET_COUNT] = { HAPTIC_LIMIT_KNEE_DEFAULT,
+				      HAPTIC_LIMIT_KNEE_DEFAULT,
+				      HAPTIC_LIMIT_KNEE_DEFAULT,
+				      HAPTIC_LIMIT_KNEE_DEFAULT };
+// The Switch starts on tones: the wave style's two full-scale bands made it rough at its grip strength
+static const uint8_t kHapticStyleDefault[ET_COUNT] = {
+	AUDIO_STYLE_WAVE, AUDIO_STYLE_TONE, AUDIO_STYLE_WAVE, AUDIO_STYLE_WAVE
+};
+uint8_t g_typeHapticStyle[ET_COUNT] = { kHapticStyleDefault[0],
+					kHapticStyleDefault[1],
+					kHapticStyleDefault[2],
+					kHapticStyleDefault[3] };
+// 200% drove the Switch's tones to their full level, which felt rough, so it starts at 100%
+const uint16_t g_typeRumbleScaleDefault[ET_COUNT] = { RUMBLE_SCALE_PCT, 100u,
+						      RUMBLE_SCALE_PCT,
+						      RUMBLE_SCALE_PCT };
+uint16_t g_typeRumbleScale[ET_COUNT] = { g_typeRumbleScaleDefault[0],
+					 g_typeRumbleScaleDefault[1],
+					 g_typeRumbleScaleDefault[2],
+					 g_typeRumbleScaleDefault[3] };
+
+uint16_t g_switchPlainScale = RUMBLE_SCALE_PCT;
+
+static bool switchPlain()
+{
+	return g_etype == ET_SWITCH && !g_switchHd;
+}
+
+void rumbleStoreActive()
+{
+	if (switchPlain())
+		g_switchPlainScale = g_rumbleScale;
+	else if (g_etype < ET_COUNT)
+		g_typeRumbleScale[g_etype] = g_rumbleScale;
+}
+
+uint16_t rumbleScaleOf(uint8_t et)
+{
+	if (et >= ET_COUNT)
+		return RUMBLE_SCALE_PCT;
+	return et == ET_SWITCH && !g_switchHd ? g_switchPlainScale :
+						g_typeRumbleScale[et];
+}
+
+void rumbleScaleSet(uint8_t et, uint16_t pct)
+{
+	if (et >= ET_COUNT)
+		return;
+	pct = pct < RUMBLE_SCALE_MIN ? RUMBLE_SCALE_MIN :
+	      pct > RUMBLE_SCALE_MAX ? RUMBLE_SCALE_MAX :
+				       pct;
+	if (et == ET_SWITCH && !g_switchHd)
+		g_switchPlainScale = pct;
+	else
+		g_typeRumbleScale[et] = pct;
+	applyActiveType();
+}
 uint8_t g_ledBright = 0;
 
 void applyActiveType()
@@ -70,6 +128,8 @@ void applyActiveType()
 		g_abSwap = 0;
 		g_padHaptics = 1;
 		g_rumble = 1;
+		g_hapticLimitKnee = HAPTIC_LIMIT_KNEE_DEFAULT;
+		g_audioHapticStyle = g_typeHapticStyle[ET_DS5];
 		g_ledBright = 0;
 		g_padStick[0] = g_padStick[1] = PS_OFF;
 		return;
@@ -81,6 +141,10 @@ void applyActiveType()
 	g_abSwap = t.abSwap;
 	g_padHaptics = t.padHaptics;
 	g_rumble = t.rumble;
+	g_rumbleScale = switchPlain() ? g_switchPlainScale :
+					g_typeRumbleScale[g_etype];
+	g_hapticLimitKnee = g_typeLimitKnee[g_etype];
+	g_audioHapticStyle = g_typeHapticStyle[ET_DS5];
 	g_ledBright = t.ledBright;
 	g_padStick[0] = g_padStickCfg[g_etype][0];
 	g_padStick[1] = g_padStickCfg[g_etype][1];
@@ -128,6 +192,15 @@ struct Cfg {
 	uint8_t hapticKnee;
 	// Switch Pro HD rumble trackpad strength pct/2 (0..500%); 0xFF (short pre-tail file) -> 100%
 	uint8_t hdPadScale2;
+	// per-type grip limiter knee (50..100) and haptic style (AUDIO_STYLE_*). 0xFF (an older file) -> the legacy
+	// shared audioStyle / hapticKnee above
+	uint8_t typeLimitKnee[ET_COUNT], typeHapticStyle[ET_COUNT];
+	// per-type grip rumble strength as percent/2; 0xFF (an older file) -> see loadCfg
+	uint8_t typeRumbleScale2[ET_COUNT];
+	// Switch Pro HD rumble on/off; anything but 0/1 (an older file) -> on
+	uint8_t switchHd;
+	// the Switch's strength with HD rumble off, percent/2; 0xFF (an older file) -> RUMBLE_SCALE_PCT
+	uint8_t switchPlainScale2;
 }; // rsvd0 = ex-padSmooth, now the one-shot debug-CDC arm
 
 // Shortest cfg.bin we still accept: the layout as of CFG_MAGIC 0xCF, i.e. everything before the appended tail.
@@ -159,11 +232,19 @@ void saveCfg()
 		  (uint8_t)(g_audioHapticGain / 2),
 		  g_audioHaptics,
 		  1,
-		  g_audioHapticStyle,
-		  g_hapticLimitKnee,
-		  (uint8_t)(g_hdPadScale / 2) };
+		  g_typeHapticStyle[ET_DS5],
+		  g_typeLimitKnee[ET_DS5],
+		  (uint8_t)(g_hdPadScale / 2),
+		  {},
+		  {},
+		  {},
+		  g_switchHd,
+		  (uint8_t)(g_switchPlainScale / 2) };
 	for (int i = 0; i < ET_COUNT; i++) {
 		c.type[i] = g_type[i];
+		c.typeLimitKnee[i] = g_typeLimitKnee[i];
+		c.typeHapticStyle[i] = g_typeHapticStyle[i];
+		c.typeRumbleScale2[i] = (uint8_t)(g_typeRumbleScale[i] / 2);
 		c.padStick[i][0] = g_padStickCfg[i][0];
 		c.padStick[i][1] = g_padStickCfg[i][1];
 	}
@@ -273,6 +354,11 @@ void loadCfg()
 			}
 			if (c.audioHaptics <= 1)
 				g_audioHaptics = c.audioHaptics;
+			if (c.switchHd <= 1)
+				g_switchHd = c.switchHd;
+			if (c.switchPlainScale2 * 2u >= RUMBLE_SCALE_MIN &&
+			    c.switchPlainScale2 * 2u <= RUMBLE_SCALE_MAX)
+				g_switchPlainScale = c.switchPlainScale2 * 2u;
 			// A file without the grip-limiter byte was saved by a build that predates the wave style, so its
 			// style is that build's default (tone) rather than a choice: skip it once and land on wave.
 			if (c.hapticKnee >= 50 && c.hapticKnee <= 100 &&
@@ -282,6 +368,30 @@ void loadCfg()
 				g_hapticLimitKnee = c.hapticKnee;
 			if (c.hdPadScale2 <= 250)
 				g_hdPadScale = (uint16_t)c.hdPadScale2 * 2;
+			// per-type limiter and haptic style; a file from before them seeds every type with the legacy
+			// shared value (g_hapticLimitKnee, g_audioHapticStyle), and the Switch with its own default
+			for (uint8_t et = 0; et < ET_COUNT; et++) {
+				uint8_t knee = c.typeLimitKnee[et],
+					style = c.typeHapticStyle[et];
+				g_typeLimitKnee[et] =
+					(knee >= 50 && knee <= 100) ?
+						knee :
+						g_hapticLimitKnee;
+				g_typeHapticStyle[et] =
+					style <= AUDIO_STYLE_WAVE ? style :
+					et == ET_DS5 ? g_audioHapticStyle :
+						       kHapticStyleDefault[et];
+				// per-type grip strength; a file from before it seeds every type with the legacy global
+				// value, unless that was never changed from the default, which leaves each type its own
+				uint8_t sc2 = c.typeRumbleScale2[et];
+				g_typeRumbleScale[et] =
+					(sc2 * 2u >= RUMBLE_SCALE_MIN &&
+					 sc2 * 2u <= RUMBLE_SCALE_MAX) ?
+						(uint16_t)(sc2 * 2u) :
+					g_rumbleScale == RUMBLE_SCALE_PCT ?
+						g_typeRumbleScaleDefault[et] :
+						g_rumbleScale;
+			}
 			// The poll RX window is now FIXED (g_rxWin is const) -- any persisted rxWin10 is ignored.
 		}
 		f.close();

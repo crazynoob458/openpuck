@@ -1222,11 +1222,13 @@ static void rfConnStep()
 		if (lastPollReplied[k]) {
 			uint8_t rs1 =
 				(uint8_t)((((g_relayPid[k]++) & 3) << 1) | 1);
-			if (rfConnFlushRelay(ch, rs1))
+			bool requeued = false;
+			if (rfConnFlushRelay(ch, rs1, &requeued))
 				g_stRelay[k]++;
 			// Backlog: a second frame this cycle. A wireless PCM stream (0x88, 8 kHz) needs ~258/s,
 			// above the 250 Hz cycle rate, so one per cycle starves it and the ring evicts samples.
-			if (relayPending()) {
+			// Not after a requeue: that frame just failed twice, and the airtime belongs to the poll.
+			if (!requeued && relayPending()) {
 				rs1 = (uint8_t)((((g_relayPid[k]++) & 3) << 1) |
 						1);
 				if (rfConnFlushRelay(ch, rs1))

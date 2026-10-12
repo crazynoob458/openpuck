@@ -37,7 +37,8 @@ void psPadClickEdge(uint8_t slot, uint32_t clicks)
 	const uint8_t click[3] = {
 		hsidePads(clicks & TB_LPADC, clicks & TB_RPADC), 0x01, 0xF7
 	};
-	relayEnqueue(0x82, click, sizeof click, true, slot);
+	// ahead of any queued PCM stream frames, which would delay the click by their length
+	relayEnqueueFront(0x82, click, sizeof click, true, slot);
 }
 
 void psNeutralCalib(uint8_t *buf)
