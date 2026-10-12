@@ -18,6 +18,7 @@ test = r'''#include <cassert>
 #define AUDIO_STYLE_SPLIT 2
 #define AUDIO_STYLE_WAVE 3
 uint8_t g_etype = 0;
+uint8_t g_switchHd = 1;
 uint16_t g_rumbleScale = RUMBLE_SCALE_PCT;
 ''' + slice_ + r'''
 int main()
@@ -40,6 +41,17 @@ int main()
 	rumbleStoreActive();
 	for (int et = 0; et < ET_COUNT; et++)
 		assert(g_typeRumbleScale[et] != 50u);
+	// the Switch with HD rumble off keeps its own strength, starting at the 200% plain rumble needs
+	g_etype = ET_SWITCH;
+	g_switchHd = 0;
+	assert(g_switchPlainScale == 200u);
+	g_rumbleScale = 150;
+	rumbleStoreActive();
+	assert(g_switchPlainScale == 150u && g_typeRumbleScale[ET_SWITCH] == 300u);
+	g_switchHd = 1;
+	g_rumbleScale = 120;
+	rumbleStoreActive();
+	assert(g_switchPlainScale == 150u && g_typeRumbleScale[ET_SWITCH] == 120u);
 	return 0;
 }
 '''

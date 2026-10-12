@@ -1117,6 +1117,8 @@ void webusbPoll()
 				// Switch Pro HD rumble toggle (0 = plain rumble, 1 = HD). Protocol v22.
 				case 128:
 					g_switchHd = v ? 1 : 0;
+					// the strength follows: HD and plain rumble keep their own
+					applyActiveType();
 					break;
 
 				// DualSense audio-driven haptics toggle (0 = off, 1 = on)

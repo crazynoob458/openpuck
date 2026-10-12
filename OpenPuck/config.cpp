@@ -77,9 +77,18 @@ uint16_t g_typeRumbleScale[ET_COUNT] = { g_typeRumbleScaleDefault[0],
 					 g_typeRumbleScaleDefault[2],
 					 g_typeRumbleScaleDefault[3] };
 
+uint16_t g_switchPlainScale = RUMBLE_SCALE_PCT;
+
+static bool switchPlain()
+{
+	return g_etype == ET_SWITCH && !g_switchHd;
+}
+
 void rumbleStoreActive()
 {
-	if (g_etype < ET_COUNT)
+	if (switchPlain())
+		g_switchPlainScale = g_rumbleScale;
+	else if (g_etype < ET_COUNT)
 		g_typeRumbleScale[g_etype] = g_rumbleScale;
 }
 uint8_t g_ledBright = 0;
@@ -110,7 +119,8 @@ void applyActiveType()
 	g_abSwap = t.abSwap;
 	g_padHaptics = t.padHaptics;
 	g_rumble = t.rumble;
-	g_rumbleScale = g_typeRumbleScale[g_etype];
+	g_rumbleScale = switchPlain() ? g_switchPlainScale :
+					g_typeRumbleScale[g_etype];
 	g_hapticLimitKnee = g_typeLimitKnee[g_etype];
 	g_audioHapticStyle = g_typeHapticStyle[ET_DS5];
 	g_ledBright = t.ledBright;
@@ -167,6 +177,8 @@ struct Cfg {
 	uint8_t typeRumbleScale2[ET_COUNT];
 	// Switch Pro HD rumble on/off; anything but 0/1 (an older file) -> on
 	uint8_t switchHd;
+	// the Switch's strength with HD rumble off, percent/2; 0xFF (an older file) -> RUMBLE_SCALE_PCT
+	uint8_t switchPlainScale2;
 }; // rsvd0 = ex-padSmooth, now the one-shot debug-CDC arm
 
 // Shortest cfg.bin we still accept: the layout as of CFG_MAGIC 0xCF, i.e. everything before the appended tail.
@@ -204,7 +216,8 @@ void saveCfg()
 		  {},
 		  {},
 		  {},
-		  g_switchHd };
+		  g_switchHd,
+		  (uint8_t)(g_switchPlainScale / 2) };
 	for (int i = 0; i < ET_COUNT; i++) {
 		c.type[i] = g_type[i];
 		c.typeLimitKnee[i] = g_typeLimitKnee[i];
@@ -321,6 +334,9 @@ void loadCfg()
 				g_audioHaptics = c.audioHaptics;
 			if (c.switchHd <= 1)
 				g_switchHd = c.switchHd;
+			if (c.switchPlainScale2 * 2u >= RUMBLE_SCALE_MIN &&
+			    c.switchPlainScale2 * 2u <= RUMBLE_SCALE_MAX)
+				g_switchPlainScale = c.switchPlainScale2 * 2u;
 			// A file without the grip-limiter byte was saved by a build that predates the wave style, so its
 			// style is that build's default (tone) rather than a choice: skip it once and land on wave.
 			if (c.hapticKnee >= 50 && c.hapticKnee <= 100 &&

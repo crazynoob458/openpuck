@@ -174,6 +174,9 @@ extern TypeCfg g_type[ET_COUNT];
 extern uint16_t g_typeRumbleScale[ET_COUNT];
 // what each type starts with, and what a config that predates its own value falls back to
 extern const uint16_t g_typeRumbleScaleDefault[ET_COUNT];
+// The Switch's strength with HD rumble off. Plain motor rumble needs the 200% the other types start with, where
+// the HD tones want 100%, so the two are kept apart: g_rumbleScale is whichever applies to the active type.
+extern uint16_t g_switchPlainScale;
 void rumbleStoreActive();
 
 // Trackpad -> analog stick mapping, per emulated type: {left pad, right pad}, values PS_OFF/PS_LEFT/PS_RIGHT.
