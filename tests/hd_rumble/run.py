@@ -138,6 +138,11 @@ test = '''int main(){
  g_rumbleScale=100;
  // a silent gap keeps the stream alive; past the hang it just stops sending frames (no 0x86 op 1)
  hapticSwitchHd(0,0,0,0,0);now+=100;hapticHdTask();assert(g_hdPcmState[0].on && messages.back().rid==0x88);
+ // an effect after silence restarts its side's bands in step, so its envelope doesn't depend on when it lands
+ assert(g_hdPcmState[0].quiet[0] && g_hdPcmState[0].quiet[1]);
+ hapticSwitchPitch(0,30000,20000,0,0,160,170,160,320);now+=2;hapticHdTask();
+ {auto &p=g_hdPcmState[0];assert(!p.quiet[0] && p.quiet[1] && fabsf(p.phase[1]/p.phase[0]-170.0f/160.0f)<0.001f);}
+ hapticSwitchHd(0,0,0,0,0);now+=100;hapticHdTask();
  now+=500;hapticHdTask();assert(!g_hdPcmState[0].on);
  for(auto &m:messages)assert(!(m.rid==0x86 && m.p[0]==1));
  reset();hdrBuildLevels();hdrReset(0);uint8_t b[4]={};uint16_t lo,hi;uint8_t packet[9]={};

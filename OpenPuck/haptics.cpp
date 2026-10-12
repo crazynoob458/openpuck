@@ -772,6 +772,7 @@ struct HdPcmState {
 	uint8_t fill;
 	uint16_t queued;
 	bool on;
+	bool quiet[2];
 	uint8_t l[PCM_SAMPLES], r[PCM_SAMPLES];
 };
 static HdPcmState g_hdPcmState[NSLOT];
@@ -817,6 +818,15 @@ static void hdPcmRun(uint8_t slot, const uint16_t bands[4],
 			      frequencies[k] > 1280 ? 1280 :
 						      frequencies[k];
 		step[k] = 6.2831853f * hz / PCM_RATE_HZ;
+	}
+	// A side's two bands restart in step on each effect after silence. Left running through the hang, they
+	// would start the same effect at a random offset, and close frequencies beat, so it swelled or faded at
+	// random (issue #17). The level is zero at the restart, so the jump can't click.
+	for (uint8_t side = 0; side < 2; side++) {
+		bool sounding = bands[side * 2] || bands[side * 2 + 1];
+		if (sounding && p.quiet[side])
+			p.phase[side * 2] = p.phase[side * 2 + 1] = 0;
+		p.quiet[side] = !sounding;
 	}
 	for (; due; due--) {
 		p.clockUs += usPerSample;
