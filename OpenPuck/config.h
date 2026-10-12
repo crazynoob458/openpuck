@@ -169,6 +169,12 @@ struct TypeCfg {
 	uint8_t rumble;
 };
 extern TypeCfg g_type[ET_COUNT];
+// Per-type grip rumble strength (percent). g_rumbleScale is the active type's live copy (applyActiveType); an
+// edit to it is kept with rumbleStoreActive().
+extern uint16_t g_typeRumbleScale[ET_COUNT];
+// what each type starts with, and what a config that predates its own value falls back to
+extern const uint16_t g_typeRumbleScaleDefault[ET_COUNT];
+void rumbleStoreActive();
 
 // Trackpad -> analog stick mapping, per emulated type: {left pad, right pad}, values PS_OFF/PS_LEFT/PS_RIGHT.
 // While the mapped pad is touched its coordinates drive that stick; releasing it re-centers the stick (the

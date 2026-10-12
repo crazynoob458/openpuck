@@ -422,7 +422,7 @@ frequency updates for a low band (around 160 Hz) and a high band (around 320 Hz)
 SDL's encoder; codes above it play at full scale. OpenPuck renders the latest bands in the main loop
 (`hapticHdTask` in `haptics.cpp`), not per USB packet:
 
-- **Grips:** each side's low and high band, summed and phase-continuous, as a 4 kHz `0x88` PCM stream on that
+- **Grips** (wave style; the other styles are under field `124` + type): each side's low and high band, summed and phase-continuous, as a 4 kHz `0x88` PCM stream on that
   side's grip, where a Pro Controller has its actuators. Scaled by the rumble strength (field `22`) and rounded off
   by the grip limiter (field `120` + type). The stream stays up through 500 ms of silence so a new effect doesn't pay the
   controller's pre-buffer again, and ends with `0x86` op 1.
@@ -443,7 +443,8 @@ Messages:
 - Host to device:
   - `0x01`: get status blob
   - `0x02 <field> <value>`: set one field. Notable fields: `22` host-rumble strength as **percent/2**
-    (10–500%, revived in blob version 21), `39` host-rumble style (`RUMBLE_STYLE_*` in `haptics.h`:
+    (10–500%, revived in blob version 21), kept per emulated type (200% by default, 100% for the Switch; the write
+    edits the active type's, and `p[53]` reads it), `39` host-rumble style (`RUMBLE_STYLE_*` in `haptics.h`:
     0 normal, 1 mono, 2 heavy, 3 light, 4 swapped, 5 punchy, 6 soft; not used in Switch Pro mode, which
     renders HD rumble, §9.5), `38` Switch Pro gyro mapping.
     DualSense audio haptics: `31` on/off, `30` gain as percent/2 (10-500%, 0 = automatic), `88` style
@@ -451,7 +452,7 @@ Messages:
     Grip limiter (blob version ≥ 22): `115` soft-limit knee of the grip PCM stream, percent of full scale,
     50..100 (70 default, 100 = off: hard clip only); other values are ignored. Per type, only for the Switch
     (type 1) and the DualSense (type 3): `120 + type` is the knee and `124 + type` the haptic style (as `88`).
-    Switch Pro HD rumble plays its grips in that style: wave streams the bands as PCM, tone plays each side's
+    Switch Pro HD rumble plays its grips in that style (tone by default; every other type starts on wave): wave streams the bands as PCM, tone plays each side's
     stronger band as a grip tone, split plays the low band as `0x80` rumble and the high band as a grip tone, rumble
     plays the stronger band as `0x80`. The pads always play the high band as tones. `115` and `88` are the older
     shared forms: `115` sets both types' knee and `88` the DualSense's style.

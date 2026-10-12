@@ -1093,6 +1093,7 @@ void webusbPoll()
 					else if (pct > RUMBLE_SCALE_MAX)
 						pct = RUMBLE_SCALE_MAX;
 					g_rumbleScale = pct;
+					rumbleStoreActive();
 					break;
 				}
 

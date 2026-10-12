@@ -15,8 +15,9 @@
   the HD trackpad strength change only the pad tones? The rumble style must not change Switch Pro rumble.
 - Grip limiter (Switch and DS5 tabs): each must survive a reboot, stay separate from the other, and change how the
   strongest hits feel in the wave style (off is the punchiest, 50% the softest).
-- Switch Pro haptics style (Switch tab): wave is the default; tone, split and rumble must each play the grips
-  differently, and changing style mid-effect must stop the old style's vibration.
+- Switch Pro haptics style (Switch tab): tone is the default, at 100% grip strength; wave, split and rumble must each
+  play the grips differently, and changing style mid-effect must stop the old style's vibration. Grip strength is
+  per type: setting it in Switch mode must not change Xbox's or the DualSense's.
 - DualSense mode on Linux: do the audio haptics play in all four styles (rumble, tone, split, wave)?
 - Steam mode: does an audio-to-haptics app that streams OUTPUT `0x88` (e.g. Fancy Haptics) play smoothly?
 - Do the modes work as expected (including gyro in gyro modes)

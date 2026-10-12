@@ -300,7 +300,7 @@
         </div>
         <div class="row" style="margin:10px 0 0"><button id="rumbleTest">Test rumble</button>
           <span class="note" style="flex:1">Buzzes every connected controller for half a second at the settings above, so you can compare styles without launching a game.</span></div>
-        <p class="note">Strength is a percentage of the amplitude the game asked for; 200% is the shipped default, so leave it there for stock feel. Style reshapes the two motors before that scale: <strong>mono</strong> drives both at the stronger value, <strong>heavy</strong> and <strong>light</strong> mute one motor each, <strong>punchy</strong> softens weak effects while leaving strong ones alone, and <strong>soft</strong> lifts weak ones so subtle rumble is felt.</p>
+        <p class="note">Strength is a percentage of the amplitude the game asked for; Each controller type keeps its own: 200% is the default (100% on the Switch, whose tone style is rough at full level), so leave it there for stock feel. Style reshapes the two motors before that scale: <strong>mono</strong> drives both at the stronger value, <strong>heavy</strong> and <strong>light</strong> mute one motor each, <strong>punchy</strong> softens weak effects while leaving strong ones alone, and <strong>soft</strong> lifts weak ones so subtle rumble is felt.</p>
       </div>
       <p id="rumbleOld" class="note hide">This puck's firmware predates the rumble-shaping settings — update it to configure them.</p>
     </div>
@@ -1243,6 +1243,9 @@ function applyBlob(p){
     $("#rumbleOld").classList.toggle("hide", rumbleCap);
     if(rumbleCap){
       if(document.activeElement!==sty) sty.value=rumbleStyle;
+      // the strength is the active type's own; the Switch starts at 100%
+      const defScale=etypeForMode(mode)===1?100:200;
+      for(const o of scl.options) o.textContent=o.value+"%"+(+o.value===defScale?" (default)":"");
       // a strength set from the console can land between the presets -- show the nearest one
       if(document.activeElement!==scl) scl.value=RUMBLE_SCALES.reduce((a,b)=>Math.abs(b-rumbleScale)<Math.abs(a-rumbleScale)?b:a);
     } }
