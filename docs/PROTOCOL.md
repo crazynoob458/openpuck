@@ -444,8 +444,9 @@ Messages:
   - `0x01`: get status blob
   - `0x02 <field> <value>`: set one field. Notable fields: `22` host-rumble strength as **percent/2**
     (10–500%, revived in blob version 21), kept per emulated type (200% by default, 100% for the Switch; the write
-    edits the active type's, and `p[53]` reads it). The Switch keeps a second one for HD rumble off (200%), which
-    applies while it is off, `39` host-rumble style (`RUMBLE_STYLE_*` in `haptics.h`:
+    edits the active type's, and `p[53]` reads it). `108` + type (blob version ≥ 22) edits any type's, and
+    payload bytes 208..211 (`p[210..213]`) read them. The Switch keeps a second one for HD rumble off (200%); both
+    fields address whichever applies to its HD rumble setting, `39` host-rumble style (`RUMBLE_STYLE_*` in `haptics.h`:
     0 normal, 1 mono, 2 heavy, 3 light, 4 swapped, 5 punchy, 6 soft; not used in Switch Pro mode, which
     renders HD rumble, §9.5), `38` Switch Pro gyro mapping.
     DualSense audio haptics: `31` on/off, `30` gain as percent/2 (10-500%, 0 = automatic), `88` style

@@ -178,6 +178,9 @@ extern const uint16_t g_typeRumbleScaleDefault[ET_COUNT];
 // the HD tones want 100%, so the two are kept apart: g_rumbleScale is whichever applies to the active type.
 extern uint16_t g_switchPlainScale;
 void rumbleStoreActive();
+// A type's grip strength as the panel edits it: the Switch's is whichever of its two applies to the HD rumble setting
+uint16_t rumbleScaleOf(uint8_t et);
+void rumbleScaleSet(uint8_t et, uint16_t pct);
 
 // Trackpad -> analog stick mapping, per emulated type: {left pad, right pad}, values PS_OFF/PS_LEFT/PS_RIGHT.
 // While the mapped pad is touched its coordinates drive that stick; releasing it re-centers the stick (the

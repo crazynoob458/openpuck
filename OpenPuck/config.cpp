@@ -91,6 +91,28 @@ void rumbleStoreActive()
 	else if (g_etype < ET_COUNT)
 		g_typeRumbleScale[g_etype] = g_rumbleScale;
 }
+
+uint16_t rumbleScaleOf(uint8_t et)
+{
+	if (et >= ET_COUNT)
+		return RUMBLE_SCALE_PCT;
+	return et == ET_SWITCH && !g_switchHd ? g_switchPlainScale :
+						g_typeRumbleScale[et];
+}
+
+void rumbleScaleSet(uint8_t et, uint16_t pct)
+{
+	if (et >= ET_COUNT)
+		return;
+	pct = pct < RUMBLE_SCALE_MIN ? RUMBLE_SCALE_MIN :
+	      pct > RUMBLE_SCALE_MAX ? RUMBLE_SCALE_MAX :
+				       pct;
+	if (et == ET_SWITCH && !g_switchHd)
+		g_switchPlainScale = pct;
+	else
+		g_typeRumbleScale[et] = pct;
+	applyActiveType();
+}
 uint8_t g_ledBright = 0;
 
 void applyActiveType()

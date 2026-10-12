@@ -105,8 +105,10 @@ static bool boardCommand(uint8_t op)
 //                 soft-limit knee percent (field 115); p[200] Switch Pro HD trackpad strength as PERCENT/2
 //                 (field 141); p[201..204] grip limiter knee per type (fields 120..123), p[205..208] haptic style
 //                 per type (fields 124..127); p[198] / p[199] stay the DualSense's style and the active type's
-//                 knee for older panels; p[209] Switch Pro HD rumble on/off (field 128)]
-#define WB_PAYLEN 208
+//                 knee for older panels; p[209] Switch Pro HD rumble on/off (field 128); p[210..213] grip rumble
+//                 strength per type as PERCENT/2 (fields 108..111; the Switch's is the one for its HD rumble
+//                 setting), p[53] stays the active type's]
+#define WB_PAYLEN 212
 // The blob send is drop-on-full (never blocks loop), so the vendor TX FIFO MUST be able to hold a whole blob
 // -- otherwise tud_vendor_write_available() never reaches the frame size and EVERY frame is dropped (blank
 // panel / stale mappings). The Makefile sets -DCFG_TUD_VENDOR_TX_BUFSIZE=256; guard it here so a build without
@@ -349,6 +351,8 @@ static void webusbSendBlob()
 		p[205 + et] = g_typeHapticStyle[et];
 	}
 	p[209] = g_switchHd;
+	for (uint8_t et = 0; et < ET_COUNT; et++)
+		p[210 + et] = (uint8_t)(rumbleScaleOf(et) / 2);
 	// CRITICAL: usb_web.write() SPINS (`while (remain && _connected) yield();`) until the IN FIFO drains or the
 	// panel disconnects. If the panel holds the WebUSB interface open but stops reading its IN endpoint -- a
 	// backgrounded tab, or the host briefly not servicing transferIn under load -- the FIFO never empties and
@@ -1146,6 +1150,16 @@ void webusbPoll()
 								v;
 						applyActiveType();
 					}
+					break;
+
+				// Per-type grip rumble strength (108 + et, percent/2). Protocol v22; 22 still edits the
+				// active type.
+				case 108:
+				case 109:
+				case 110:
+				case 111:
+					rumbleScaleSet((uint8_t)(f - 108),
+						       (uint16_t)v * 2);
 					break;
 
 				// Per-type grip limiter knee (120 + et) and haptic style (124 + et, AUDIO_STYLE_*), only

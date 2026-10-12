@@ -13,6 +13,10 @@ test = r'''#include <cassert>
 #define ET_DS5 3
 #define HAPTIC_LIMIT_KNEE_DEFAULT 70u
 #define RUMBLE_SCALE_PCT 200u
+#define RUMBLE_SCALE_MIN 10u
+#define RUMBLE_SCALE_MAX 500u
+int applied = 0;
+void applyActiveType() { applied++; }
 #define AUDIO_STYLE_RUMBLE 0
 #define AUDIO_STYLE_TONE 1
 #define AUDIO_STYLE_SPLIT 2
@@ -52,6 +56,22 @@ int main()
 	g_rumbleScale = 120;
 	rumbleStoreActive();
 	assert(g_switchPlainScale == 150u && g_typeRumbleScale[ET_SWITCH] == 120u);
+	// the panel edits a type by index: the Switch's follows its HD rumble setting, the rest are plain
+	g_switchHd = 1;
+	rumbleScaleSet(ET_SWITCH, 80);
+	rumbleScaleSet(ET_DS5, 400);
+	assert(rumbleScaleOf(ET_SWITCH) == 80u && rumbleScaleOf(ET_DS5) == 400u && applied == 2);
+	g_switchHd = 0;
+	assert(rumbleScaleOf(ET_SWITCH) == g_switchPlainScale);
+	rumbleScaleSet(ET_SWITCH, 250);
+	assert(g_switchPlainScale == 250u && g_typeRumbleScale[ET_SWITCH] == 80u);
+	// out of range clamps, and an unknown type is ignored
+	rumbleScaleSet(ET_XBOX, 5000);
+	assert(rumbleScaleOf(ET_XBOX) == 500u);
+	rumbleScaleSet(ET_XBOX, 1);
+	assert(rumbleScaleOf(ET_XBOX) == 10u);
+	rumbleScaleSet(9, 100);
+	assert(applied == 5);
 	return 0;
 }
 '''
