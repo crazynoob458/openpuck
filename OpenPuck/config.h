@@ -204,9 +204,19 @@ extern uint16_t g_audioHapticGain;
 #define AUDIO_STYLE_WAVE 3
 extern uint8_t g_audioHapticStyle;
 // Grip PCM soft-limit knee (DualSense wave style, Switch Pro HD grips), percent of full scale: 50..100, 70 default.
-// Peaks above it are rounded off toward full scale; 100 leaves only the hard clip at full scale.
+// Peaks above it are rounded off toward full scale; 100 leaves only the hard clip at full scale. Each emulated type
+// keeps its own (g_typeLimitKnee); g_hapticLimitKnee is the active type's live copy (applyActiveType).
 #define HAPTIC_LIMIT_KNEE_DEFAULT 70u
 extern uint8_t g_hapticLimitKnee;
+extern uint8_t g_typeLimitKnee[ET_COUNT];
+// Haptic style per emulated type (AUDIO_STYLE_*): how the DualSense (ET_DS5) plays its audio haptics and how the
+// Switch (ET_SWITCH) plays HD rumble on the grips. The other types ignore it. g_audioHapticStyle is the DS5 entry.
+extern uint8_t g_typeHapticStyle[ET_COUNT];
+// the types that have a grip limiter and a haptic style
+static inline bool hapticTypeHasStyle(uint8_t et)
+{
+	return et == ET_SWITCH || et == ET_DS5;
+}
 // LED brightness for the active emulated type (0 = no override, 1-100 = brightness %)
 extern uint8_t g_ledBright;
 // Live mirror of g_padStickCfg[g_etype]: {left pad, right pad} -> stick (PS_*).

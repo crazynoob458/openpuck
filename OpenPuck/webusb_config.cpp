@@ -103,8 +103,10 @@ static bool boardCommand(uint8_t op)
 //                 p[197] audioHaptics (field 31, DualSense audio-driven haptics: 0=off, 1=on)]
 //                [v22: p[198] audioHapticStyle (field 88, AUDIO_STYLE_* in config.h); p[199] grip PCM
 //                 soft-limit knee percent (field 115); p[200] Switch Pro HD trackpad strength as PERCENT/2
-//                 (field 141)]
-#define WB_PAYLEN 199
+//                 (field 141); p[201..204] grip limiter knee per type (fields 120..123), p[205..208] haptic style
+//                 per type (fields 124..127); p[198] / p[199] stay the DualSense's style and the active type's
+//                 knee for older panels]
+#define WB_PAYLEN 207
 // The blob send is drop-on-full (never blocks loop), so the vendor TX FIFO MUST be able to hold a whole blob
 // -- otherwise tud_vendor_write_available() never reaches the frame size and EVERY frame is dropped (blank
 // panel / stale mappings). The Makefile sets -DCFG_TUD_VENDOR_TX_BUFSIZE=256; guard it here so a build without
@@ -342,6 +344,10 @@ static void webusbSendBlob()
 	p[198] = g_audioHapticStyle;
 	p[199] = g_hapticLimitKnee;
 	p[200] = (uint8_t)(g_hdPadScale / 2);
+	for (uint8_t et = 0; et < ET_COUNT; et++) {
+		p[201 + et] = g_typeLimitKnee[et];
+		p[205 + et] = g_typeHapticStyle[et];
+	}
 	// CRITICAL: usb_web.write() SPINS (`while (remain && _connected) yield();`) until the IN FIFO drains or the
 	// panel disconnects. If the panel holds the WebUSB interface open but stops reading its IN endpoint -- a
 	// backgrounded tab, or the host briefly not servicing transferIn under load -- the FIFO never empties and
@@ -1112,19 +1118,53 @@ void webusbPoll()
 					break;
 
 				// DualSense audio-driven haptics style (AUDIO_STYLE_*). Protocol v22. Past
-				// the per-type cfg range (40..75) and the pad->stick fields (80..87).
+				// the per-type cfg range (40..75) and the pad->stick fields (80..87). Since the style
+				// became per type this edits the DualSense's (see 124..127).
 				case 88:
-					g_audioHapticStyle =
+					g_typeHapticStyle[ET_DS5] =
 						v > AUDIO_STYLE_WAVE ?
 							AUDIO_STYLE_WAVE :
 							v;
+					applyActiveType();
 					break;
 
-				// Grip PCM soft-limit knee, percent (50..100; 100 = off). Protocol v22.
+				// Grip PCM soft-limit knee, percent (50..100; 100 = off). Protocol v22. It was one setting
+				// for both types; an older panel still writes it that way, so it sets both.
 				case 115:
-					if (v >= 50 && v <= 100)
-						g_hapticLimitKnee = v;
+					if (v >= 50 && v <= 100) {
+						g_typeLimitKnee[ET_SWITCH] =
+							g_typeLimitKnee[ET_DS5] =
+								v;
+						applyActiveType();
+					}
 					break;
+
+				// Per-type grip limiter knee (120 + et) and haptic style (124 + et, AUDIO_STYLE_*), only
+				// for the types that have them: Switch and DualSense.
+				case 120:
+				case 121:
+				case 122:
+				case 123: {
+					uint8_t et = (uint8_t)(f - 120);
+					if (hapticTypeHasStyle(et) && v >= 50 &&
+					    v <= 100) {
+						g_typeLimitKnee[et] = v;
+						applyActiveType();
+					}
+					break;
+				}
+				case 124:
+				case 125:
+				case 126:
+				case 127: {
+					uint8_t et = (uint8_t)(f - 124);
+					if (hapticTypeHasStyle(et) &&
+					    v <= AUDIO_STYLE_WAVE) {
+						g_typeHapticStyle[et] = v;
+						applyActiveType();
+					}
+					break;
+				}
 
 				// Switch Pro HD rumble trackpad strength (percent / 2, 0-500%). Protocol v22; the
 				// same field upstream PR #303 uses.

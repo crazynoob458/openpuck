@@ -55,6 +55,12 @@ uint8_t g_audioHaptics = 1;
 uint16_t g_audioHapticGain = 0;
 uint8_t g_audioHapticStyle = AUDIO_STYLE_WAVE;
 uint8_t g_hapticLimitKnee = HAPTIC_LIMIT_KNEE_DEFAULT;
+uint8_t g_typeLimitKnee[ET_COUNT] = { HAPTIC_LIMIT_KNEE_DEFAULT,
+				      HAPTIC_LIMIT_KNEE_DEFAULT,
+				      HAPTIC_LIMIT_KNEE_DEFAULT,
+				      HAPTIC_LIMIT_KNEE_DEFAULT };
+uint8_t g_typeHapticStyle[ET_COUNT] = { AUDIO_STYLE_WAVE, AUDIO_STYLE_WAVE,
+					AUDIO_STYLE_WAVE, AUDIO_STYLE_WAVE };
 uint8_t g_ledBright = 0;
 
 void applyActiveType()
@@ -70,6 +76,8 @@ void applyActiveType()
 		g_abSwap = 0;
 		g_padHaptics = 1;
 		g_rumble = 1;
+		g_hapticLimitKnee = HAPTIC_LIMIT_KNEE_DEFAULT;
+		g_audioHapticStyle = g_typeHapticStyle[ET_DS5];
 		g_ledBright = 0;
 		g_padStick[0] = g_padStick[1] = PS_OFF;
 		return;
@@ -81,6 +89,8 @@ void applyActiveType()
 	g_abSwap = t.abSwap;
 	g_padHaptics = t.padHaptics;
 	g_rumble = t.rumble;
+	g_hapticLimitKnee = g_typeLimitKnee[g_etype];
+	g_audioHapticStyle = g_typeHapticStyle[ET_DS5];
 	g_ledBright = t.ledBright;
 	g_padStick[0] = g_padStickCfg[g_etype][0];
 	g_padStick[1] = g_padStickCfg[g_etype][1];
@@ -128,6 +138,9 @@ struct Cfg {
 	uint8_t hapticKnee;
 	// Switch Pro HD rumble trackpad strength pct/2 (0..500%); 0xFF (short pre-tail file) -> 100%
 	uint8_t hdPadScale2;
+	// per-type grip limiter knee (50..100) and haptic style (AUDIO_STYLE_*). 0xFF (an older file) -> the legacy
+	// shared audioStyle / hapticKnee above
+	uint8_t typeLimitKnee[ET_COUNT], typeHapticStyle[ET_COUNT];
 }; // rsvd0 = ex-padSmooth, now the one-shot debug-CDC arm
 
 // Shortest cfg.bin we still accept: the layout as of CFG_MAGIC 0xCF, i.e. everything before the appended tail.
@@ -159,11 +172,15 @@ void saveCfg()
 		  (uint8_t)(g_audioHapticGain / 2),
 		  g_audioHaptics,
 		  1,
-		  g_audioHapticStyle,
-		  g_hapticLimitKnee,
-		  (uint8_t)(g_hdPadScale / 2) };
+		  g_typeHapticStyle[ET_DS5],
+		  g_typeLimitKnee[ET_DS5],
+		  (uint8_t)(g_hdPadScale / 2),
+		  {},
+		  {} };
 	for (int i = 0; i < ET_COUNT; i++) {
 		c.type[i] = g_type[i];
+		c.typeLimitKnee[i] = g_typeLimitKnee[i];
+		c.typeHapticStyle[i] = g_typeHapticStyle[i];
 		c.padStick[i][0] = g_padStickCfg[i][0];
 		c.padStick[i][1] = g_padStickCfg[i][1];
 	}
@@ -282,6 +299,21 @@ void loadCfg()
 				g_hapticLimitKnee = c.hapticKnee;
 			if (c.hdPadScale2 <= 250)
 				g_hdPadScale = (uint16_t)c.hdPadScale2 * 2;
+			// per-type limiter and haptic style; a file from before them seeds every type with the legacy
+			// shared value (g_hapticLimitKnee, g_audioHapticStyle), and the Switch with the wave style it
+			// always played
+			for (uint8_t et = 0; et < ET_COUNT; et++) {
+				uint8_t knee = c.typeLimitKnee[et],
+					style = c.typeHapticStyle[et];
+				g_typeLimitKnee[et] =
+					(knee >= 50 && knee <= 100) ?
+						knee :
+						g_hapticLimitKnee;
+				g_typeHapticStyle[et] =
+					style <= AUDIO_STYLE_WAVE ? style :
+					et == ET_DS5 ? g_audioHapticStyle :
+						       AUDIO_STYLE_WAVE;
+			}
 			// The poll RX window is now FIXED (g_rxWin is const) -- any persisted rxWin10 is ignored.
 		}
 		f.close();
