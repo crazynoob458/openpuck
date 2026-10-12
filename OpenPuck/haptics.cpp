@@ -187,8 +187,8 @@ bool relayEnqueueFront(uint8_t rid, const uint8_t *payload, uint8_t plen,
 	__disable_irq();
 	// Full ring: drop the newest entry to make room, so the entries already waiting keep their order.
 	if (rqNext(g_rqHead[slot]) == g_rqTail[slot]) {
-		g_rqHead[slot] =
-			(uint8_t)((g_rqHead[slot] + RELAY_QLEN - 1) % RELAY_QLEN);
+		g_rqHead[slot] = (uint8_t)((g_rqHead[slot] + RELAY_QLEN - 1) %
+					   RELAY_QLEN);
 		g_relayDrops++;
 	}
 	uint8_t t = (uint8_t)((g_rqTail[slot] + RELAY_QLEN - 1) % RELAY_QLEN);
