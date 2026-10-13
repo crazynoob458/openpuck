@@ -36,6 +36,7 @@ uint16_t g_rumbleScale = RUMBLE_SCALE_PCT;
 uint8_t g_rumbleStyle = RUMBLE_STYLE_NORMAL;
 // Switch Pro HD rumble trackpad tone strength, percent (0 = grips only). Persisted -- WebUSB field 141.
 uint16_t g_hdPadScale = 100;
+uint16_t g_hdPadScale2 = 100;
 // Master enable for the puck->controller haptic RELAY (Steam OUTPUT reports 0x80-0x89, incl. the trackpad
 // texture-feedback stream Steam pushes WHILE you drag). Each relayed frame is an extra TX that precedes the
 // E3 poll and steals its reply window, and the controller must stop to process it -- both can depress the
@@ -421,6 +422,8 @@ static void hapticCancelPendingOn(int slot)
 			if (m.isHaptic && m.rid == 0x83 && m.len >= 2 &&
 			    (int8_t)m.data[1] != -128)
 				m.rid = 0;
+			if (m.isHaptic && m.rid == 0x88)
+				m.rid = 0;
 			if (m.rid == 0x80) {
 				bool on = false;
 				for (uint8_t j = 0; j < m.len; j++)
@@ -691,8 +694,11 @@ bool hapticSteamRumble(uint16_t lowFreq, uint16_t highFreq, uint8_t slot)
 	if (slot >= NSLOT)
 		return false;
 	// Switch Pro renders HD rumble unless it is off; the styles apply to every other mode
-	if (g_usbMode == MODE_SW_PRO && g_switchHd) {
+	if ((g_usbMode == MODE_SW_PRO || g_usbMode == MODE_SW_PRO2) &&
+	    activeSwitchHd()) {
 		hapticSwitchHd(slot, lowFreq, lowFreq, highFreq, highFreq);
+		if (!lowFreq && !highFreq && g_hdRumble[slot].active)
+			hdStop(slot);
 		return true;
 	}
 	if (g_hdRumble[slot].active)
@@ -702,7 +708,9 @@ bool hapticSteamRumble(uint16_t lowFreq, uint16_t highFreq, uint8_t slot)
 
 static uint16_t hdScale(uint16_t amplitude)
 {
-	uint32_t v = (uint32_t)amplitude * g_hdPadScale / 100;
+	uint16_t scale = g_usbMode == MODE_SW_PRO2 ? g_hdPadScale2 :
+						     g_hdPadScale;
+	uint32_t v = (uint32_t)amplitude * scale / 100;
 	return v > 65535u ? 65535u : (uint16_t)v;
 }
 
@@ -926,10 +934,13 @@ static void hapticHdTask()
 		__disable_irq();
 		HdRumbleState snapshot = g_hdRumble[slot];
 		__set_PRIMASK(pm);
-		uint8_t style = g_typeHapticStyle[ET_SWITCH];
+		uint8_t swEt = g_usbMode == MODE_SW_PRO2 ? ET_SWITCH2 :
+							   ET_SWITCH;
+		uint8_t style = g_typeHapticStyle[swEt];
 		bool wave = style == AUDIO_STYLE_WAVE;
-		bool enabled = g_usbMode == MODE_SW_PRO && g_switchHd &&
-			       g_rumble && g_hapticRelay &&
+		bool enabled = (g_usbMode == MODE_SW_PRO ||
+				g_usbMode == MODE_SW_PRO2) &&
+			       activeSwitchHd() && g_rumble && g_hapticRelay &&
 			       !USBDevice.suspended();
 		bool on = snapshot.bands[0] || snapshot.bands[1] ||
 			  snapshot.bands[2] || snapshot.bands[3];
@@ -2689,9 +2700,9 @@ void hapticInit()
 static const uint32_t IMU_KEEP_MS = 5000;
 static bool modeWantsImu(uint8_t m)
 {
-	return m == MODE_SW_PRO || m == MODE_PS5 || m == MODE_PS5_GAME ||
-	       m == MODE_HIDGYRO || m == MODE_DS4_GAME || m == MODE_PS3 ||
-	       m == MODE_DINPUT || m == MODE_SINPUT;
+	return m == MODE_SW_PRO || m == MODE_SW_PRO2 || m == MODE_PS5 ||
+	       m == MODE_PS5_GAME || m == MODE_HIDGYRO || m == MODE_DS4_GAME ||
+	       m == MODE_PS3 || m == MODE_DINPUT || m == MODE_SINPUT;
 }
 // Steam can leave the controller's persisted IMU mode off, and it survives across pucks. Every emulated
 // gyro mode needs the raw RF samples that setting suppresses, so write raw accel + gyro for this slot.

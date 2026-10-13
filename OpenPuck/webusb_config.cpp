@@ -24,6 +24,8 @@ Adafruit_USBD_WebUSB usb_web;
 // the panel sends.
 bool xboxOgVendorControlXfer(uint8_t rhport, uint8_t stage,
 			     const tusb_control_request_t *request);
+bool switch2ProVendorControlXfer(uint8_t rhport, uint8_t stage,
+				 const tusb_control_request_t *request);
 extern "C" bool
 __real_tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
 				  const tusb_control_request_t *request);
@@ -33,6 +35,9 @@ __wrap_tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
 {
 	if (g_usbMode == MODE_XBOX_OG &&
 	    xboxOgVendorControlXfer(rhport, stage, request))
+		return true;
+	if (g_usbMode == MODE_SW_PRO2 &&
+	    switch2ProVendorControlXfer(rhport, stage, request))
 		return true;
 	return __real_tud_vendor_control_xfer_cb(rhport, stage, request);
 }
@@ -107,8 +112,8 @@ static bool boardCommand(uint8_t op)
 //                 per type (fields 124..127); p[198] / p[199] stay the DualSense's style and the active type's
 //                 knee for older panels; p[209] Switch Pro HD rumble on/off (field 128); p[210..213] grip rumble
 //                 strength per type as PERCENT/2 (fields 108..111; the Switch's is the one for its HD rumble
-//                 setting), p[53] stays the active type's]
-#define WB_PAYLEN 212
+//                 setting), p[53] stays the active type's; p[214..229] ET_SWITCH2 per-type settings]
+#define WB_PAYLEN 228
 // The blob send is drop-on-full (never blocks loop), so the vendor TX FIFO MUST be able to hold a whole blob
 // -- otherwise tud_vendor_write_available() never reaches the frame size and EVERY frame is dropped (blank
 // panel / stale mappings). The Makefile sets -DCFG_TUD_VENDOR_TX_BUFSIZE=256; guard it here so a build without
@@ -240,8 +245,8 @@ static void webusbSendBlob()
 			p[65 + s * 3] = g_linkRssi[s];
 		}
 	}
-	// per-emulated-type button config (v10/v17): 4 types x 9 bytes from p[75]
-	for (int et = 0; et < ET_COUNT; et++) {
+	// per-emulated-type button config (v10/v17): 4 base types x 9 bytes from p[75]
+	for (int et = 0; et < 4; et++) {
 		uint8_t *q = &p[75 + et * 9];
 		q[0] = g_type[et].back[0];
 		q[1] = g_type[et].back[1];
@@ -333,8 +338,8 @@ static void webusbSendBlob()
 	p[185] = g_chordDpad[CHD_DOWN];
 	// v19: Switch Pro gyro mapping (0 = corrected/default, 1 = legacy pre-#189 raw axes)
 	p[186] = g_swGyroLegacy;
-	// v20: per-type trackpad->stick mapping, {left pad, right pad} per emulated type
-	for (int et = 0; et < ET_COUNT; et++) {
+	// v20: per-type trackpad->stick mapping, {left pad, right pad} per base emulated type
+	for (int et = 0; et < 4; et++) {
 		p[187 + et * 2] = g_padStickCfg[et][0];
 		p[188 + et * 2] = g_padStickCfg[et][1];
 	}
@@ -346,13 +351,29 @@ static void webusbSendBlob()
 	p[198] = g_audioHapticStyle;
 	p[199] = g_hapticLimitKnee;
 	p[200] = (uint8_t)(g_hdPadScale / 2);
-	for (uint8_t et = 0; et < ET_COUNT; et++) {
+	for (uint8_t et = 0; et < 4; et++) {
 		p[201 + et] = g_typeLimitKnee[et];
 		p[205 + et] = g_typeHapticStyle[et];
 	}
 	p[209] = g_switchHd;
-	for (uint8_t et = 0; et < ET_COUNT; et++)
+	for (uint8_t et = 0; et < 4; et++)
 		p[210 + et] = (uint8_t)(rumbleScaleOf(et) / 2);
+	p[214] = g_type[ET_SWITCH2].back[0];
+	p[215] = g_type[ET_SWITCH2].back[1];
+	p[216] = g_type[ET_SWITCH2].back[2];
+	p[217] = g_type[ET_SWITCH2].back[3];
+	p[218] = g_type[ET_SWITCH2].qamMap;
+	p[219] = g_type[ET_SWITCH2].abSwap;
+	p[220] = g_type[ET_SWITCH2].padHaptics;
+	p[221] = g_type[ET_SWITCH2].ledBright;
+	p[222] = g_type[ET_SWITCH2].rumble;
+	p[223] = g_padStickCfg[ET_SWITCH2][0];
+	p[224] = g_padStickCfg[ET_SWITCH2][1];
+	p[225] = g_typeLimitKnee[ET_SWITCH2];
+	p[226] = g_typeHapticStyle[ET_SWITCH2];
+	p[227] = (uint8_t)(rumbleScaleOf(ET_SWITCH2) / 2);
+	p[228] = g_switch2Hd;
+	p[229] = (uint8_t)(g_hdPadScale2 / 2);
 	// CRITICAL: usb_web.write() SPINS (`while (remain && _connected) yield();`) until the IN FIFO drains or the
 	// panel disconnects. If the panel holds the WebUSB interface open but stops reading its IN endpoint -- a
 	// backgrounded tab, or the host briefly not servicing transferIn under load -- the FIFO never empties and
@@ -939,11 +960,19 @@ void webusbPoll()
 
 				// every settable field persists (poll rate is no longer settable)
 				bool persist = true;
-				// per-type cfg writes (protocol v10/v17): field = 40 + et*9 + k, k: 0..3 back, 4 qam, 5 abSwap,
+				// per-type cfg writes (protocol v10/v17): field = 40 + et*9 + k for base types 0..3,
+				// or 150 + k for ET_SWITCH2 (so 80..87 stay pad->stick). k: 0..3 back, 4 qam, 5 abSwap,
 				// 6 padHaptics, 7 ledBright, 8 rumble. Edits g_type[et]; refresh the live mirrors if it's the active type.
-				if (f >= 40 && f < 40 + ET_COUNT * 9) {
-					uint8_t et = (uint8_t)((f - 40) / 9),
-						k = (uint8_t)((f - 40) % 9);
+				if ((f >= 40 && f < 40 + 4 * 9) ||
+				    (f >= 150 && f < 150 + 9)) {
+					uint8_t et =
+						f >= 150 ?
+							ET_SWITCH2 :
+							(uint8_t)((f - 40) / 9);
+					uint8_t k =
+						f >= 150 ?
+							(uint8_t)(f - 150) :
+							(uint8_t)((f - 40) % 9);
 					if (et < ET_COUNT) {
 						if (k < 4)
 							g_type[et].back[k] = v;
@@ -1066,10 +1095,8 @@ void webusbPoll()
 					}
 					break;
 
-				// 80..87: per-type trackpad->stick mapping, field = 80 + et*2 + pad
-				// (pad 0 = left, 1 = right; value PS_OFF/PS_LEFT/PS_RIGHT).
-				// Must stay clear of the per-type cfg range 40..40+ET_COUNT*9-1
-				// (40..75), which is claimed before this switch runs.
+				// 80..87 (and 160..161 for ET_SWITCH2): per-type trackpad->stick mapping,
+				// field = 80 + et*2 + pad (pad 0 = left, 1 = right; value PS_OFF/PS_LEFT/PS_RIGHT).
 				case 80:
 				case 81:
 				case 82:
@@ -1077,9 +1104,17 @@ void webusbPoll()
 				case 84:
 				case 85:
 				case 86:
-				case 87: {
-					uint8_t et = (uint8_t)((f - 80) / 2),
-						pad = (uint8_t)((f - 80) % 2);
+				case 87:
+				case 160:
+				case 161: {
+					uint8_t et =
+						f >= 160 ?
+							ET_SWITCH2 :
+							(uint8_t)((f - 80) / 2);
+					uint8_t pad =
+						f >= 160 ?
+							(uint8_t)(f - 160) :
+							(uint8_t)((f - 80) % 2);
 					if (et < ET_COUNT && v <= PS_MAX) {
 						g_padStickCfg[et][pad] = v;
 						if (et == g_etype)
@@ -1124,6 +1159,10 @@ void webusbPoll()
 					// the strength follows: HD and plain rumble keep their own
 					applyActiveType();
 					break;
+				case 129:
+					g_switch2Hd = v ? 1 : 0;
+					applyActiveType();
+					break;
 
 				// DualSense audio-driven haptics toggle (0 = off, 1 = on)
 				case 31:
@@ -1146,8 +1185,10 @@ void webusbPoll()
 				case 115:
 					if (v >= 50 && v <= 100) {
 						g_typeLimitKnee[ET_SWITCH] =
-							g_typeLimitKnee[ET_DS5] =
-								v;
+							g_typeLimitKnee[ET_SWITCH2] =
+								g_typeLimitKnee
+									[ET_DS5] =
+										v;
 						applyActiveType();
 					}
 					break;
@@ -1158,17 +1199,22 @@ void webusbPoll()
 				case 109:
 				case 110:
 				case 111:
+				case 112:
 					rumbleScaleSet((uint8_t)(f - 108),
 						       (uint16_t)v * 2);
 					break;
 
-				// Per-type grip limiter knee (120 + et) and haptic style (124 + et, AUDIO_STYLE_*), only
-				// for the types that have them: Switch and DualSense.
+				// Per-type grip limiter knee (120 + et, or 130 for ET_SWITCH2) and haptic style
+				// (124 + et, or 131 for ET_SWITCH2, AUDIO_STYLE_*), only for the types that have them:
+				// Switch and DualSense.
 				case 120:
 				case 121:
 				case 122:
-				case 123: {
-					uint8_t et = (uint8_t)(f - 120);
+				case 123:
+				case 130: {
+					uint8_t et = f == 130 ?
+							     ET_SWITCH2 :
+							     (uint8_t)(f - 120);
 					if (hapticTypeHasStyle(et) && v >= 50 &&
 					    v <= 100) {
 						g_typeLimitKnee[et] = v;
@@ -1179,8 +1225,11 @@ void webusbPoll()
 				case 124:
 				case 125:
 				case 126:
-				case 127: {
-					uint8_t et = (uint8_t)(f - 124);
+				case 127:
+				case 131: {
+					uint8_t et = f == 131 ?
+							     ET_SWITCH2 :
+							     (uint8_t)(f - 124);
 					if (hapticTypeHasStyle(et) &&
 					    v <= AUDIO_STYLE_WAVE) {
 						g_typeHapticStyle[et] = v;
@@ -1190,9 +1239,13 @@ void webusbPoll()
 				}
 
 				// Switch Pro HD rumble trackpad strength (percent / 2, 0-500%). Protocol v22; the
-				// same field upstream PR #303 uses.
+				// same field upstream PR #303 uses (142 for Switch 2).
 				case 141:
 					g_hdPadScale =
+						v > 250 ? 500 : (uint16_t)v * 2;
+					break;
+				case 142:
+					g_hdPadScale2 =
 						v > 250 ? 500 : (uint16_t)v * 2;
 					break;
 

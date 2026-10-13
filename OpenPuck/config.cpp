@@ -34,10 +34,11 @@ int g_mDiv = 64, g_mFric = 94;
 // trackpad haptics off. qamMap 0 = unmapped (hardcoded per-mode behavior). ledBright 0 = no override.
 // rumble 1 = enabled (default), 0 = host rumble silenced for that type.
 TypeCfg g_type[ET_COUNT] = {
-	/* ET_XBOX   */ { { 5, 6, 7, 8 }, 0, 0, 1, 0, 1 },
-	/* ET_SWITCH */ { { 5, 6, 7, 8 }, 18, 1, 0, 0, 1 },
-	/* ET_DS4    */ { { 5, 6, 7, 8 }, 0, 0, 1, 0, 1 },
-	/* ET_DS5    */ { { 5, 6, 7, 8 }, 0, 0, 1, 0, 1 },
+	/* ET_XBOX    */ { { 5, 6, 7, 8 }, 0, 0, 1, 0, 1 },
+	/* ET_SWITCH  */ { { 5, 6, 7, 8 }, 18, 1, 0, 0, 1 },
+	/* ET_DS4     */ { { 5, 6, 7, 8 }, 0, 0, 1, 0, 1 },
+	/* ET_DS5     */ { { 5, 6, 7, 8 }, 0, 0, 1, 0, 1 },
+	/* ET_SWITCH2 */ { { 21, 22, 7, 8 }, 18, 1, 0, 0, 1 },
 };
 uint8_t g_etype = ET_NONE;
 
@@ -53,41 +54,43 @@ uint8_t g_padHaptics = 1;
 uint8_t g_rumble = 1;
 uint8_t g_audioHaptics = 1;
 uint8_t g_switchHd = 1;
+uint8_t g_switch2Hd = 1;
 uint16_t g_audioHapticGain = 0;
 uint8_t g_audioHapticStyle = AUDIO_STYLE_WAVE;
 uint8_t g_hapticLimitKnee = HAPTIC_LIMIT_KNEE_DEFAULT;
 uint8_t g_typeLimitKnee[ET_COUNT] = { HAPTIC_LIMIT_KNEE_DEFAULT,
 				      HAPTIC_LIMIT_KNEE_DEFAULT,
 				      HAPTIC_LIMIT_KNEE_DEFAULT,
+				      HAPTIC_LIMIT_KNEE_DEFAULT,
 				      HAPTIC_LIMIT_KNEE_DEFAULT };
 // The Switch starts on tones: the wave style's two full-scale bands made it rough at its grip strength
 static const uint8_t kHapticStyleDefault[ET_COUNT] = {
-	AUDIO_STYLE_WAVE, AUDIO_STYLE_TONE, AUDIO_STYLE_WAVE, AUDIO_STYLE_WAVE
+	AUDIO_STYLE_WAVE, AUDIO_STYLE_TONE, AUDIO_STYLE_WAVE, AUDIO_STYLE_WAVE,
+	AUDIO_STYLE_TONE
 };
-uint8_t g_typeHapticStyle[ET_COUNT] = { kHapticStyleDefault[0],
-					kHapticStyleDefault[1],
-					kHapticStyleDefault[2],
-					kHapticStyleDefault[3] };
+uint8_t g_typeHapticStyle[ET_COUNT] = {
+	kHapticStyleDefault[0], kHapticStyleDefault[1], kHapticStyleDefault[2],
+	kHapticStyleDefault[3], kHapticStyleDefault[4]
+};
 // 200% drove the Switch's tones to their full level, which felt rough, so it starts at 100%
 const uint16_t g_typeRumbleScaleDefault[ET_COUNT] = { RUMBLE_SCALE_PCT, 100u,
 						      RUMBLE_SCALE_PCT,
-						      RUMBLE_SCALE_PCT };
+						      RUMBLE_SCALE_PCT, 100u };
 uint16_t g_typeRumbleScale[ET_COUNT] = { g_typeRumbleScaleDefault[0],
 					 g_typeRumbleScaleDefault[1],
 					 g_typeRumbleScaleDefault[2],
-					 g_typeRumbleScaleDefault[3] };
+					 g_typeRumbleScaleDefault[3],
+					 g_typeRumbleScaleDefault[4] };
 
 uint16_t g_switchPlainScale = RUMBLE_SCALE_PCT;
-
-static bool switchPlain()
-{
-	return g_etype == ET_SWITCH && !g_switchHd;
-}
+uint16_t g_switch2PlainScale = RUMBLE_SCALE_PCT;
 
 void rumbleStoreActive()
 {
-	if (switchPlain())
+	if (g_etype == ET_SWITCH && !g_switchHd)
 		g_switchPlainScale = g_rumbleScale;
+	else if (g_etype == ET_SWITCH2 && !g_switch2Hd)
+		g_switch2PlainScale = g_rumbleScale;
 	else if (g_etype < ET_COUNT)
 		g_typeRumbleScale[g_etype] = g_rumbleScale;
 }
@@ -96,8 +99,11 @@ uint16_t rumbleScaleOf(uint8_t et)
 {
 	if (et >= ET_COUNT)
 		return RUMBLE_SCALE_PCT;
-	return et == ET_SWITCH && !g_switchHd ? g_switchPlainScale :
-						g_typeRumbleScale[et];
+	if (et == ET_SWITCH && !g_switchHd)
+		return g_switchPlainScale;
+	if (et == ET_SWITCH2 && !g_switch2Hd)
+		return g_switch2PlainScale;
+	return g_typeRumbleScale[et];
 }
 
 void rumbleScaleSet(uint8_t et, uint16_t pct)
@@ -109,6 +115,8 @@ void rumbleScaleSet(uint8_t et, uint16_t pct)
 				       pct;
 	if (et == ET_SWITCH && !g_switchHd)
 		g_switchPlainScale = pct;
+	else if (et == ET_SWITCH2 && !g_switch2Hd)
+		g_switch2PlainScale = pct;
 	else
 		g_typeRumbleScale[et] = pct;
 	applyActiveType();
@@ -141,8 +149,7 @@ void applyActiveType()
 	g_abSwap = t.abSwap;
 	g_padHaptics = t.padHaptics;
 	g_rumble = t.rumble;
-	g_rumbleScale = switchPlain() ? g_switchPlainScale :
-					g_typeRumbleScale[g_etype];
+	g_rumbleScale = rumbleScaleOf(g_etype);
 	g_hapticLimitKnee = g_typeLimitKnee[g_etype];
 	g_audioHapticStyle = g_typeHapticStyle[ET_DS5];
 	g_ledBright = t.ledBright;
@@ -159,6 +166,7 @@ uint32_t g_pollUs = POLL_US_DEFAULT;
 // Struct layout/semantics changed (TypeCfg gained rumble byte); bump so old flash format is discarded ->
 // clean defaults once.
 #define CFG_MAGIC 0xCF
+#define CFG_BASE_TYPES 4
 struct Cfg {
 	uint8_t magic, mode, mDiv, mFric, rsvd0, pollU100, persistMode,
 		bootMode, chordBtn[3], rumbScale2;
@@ -168,12 +176,12 @@ struct Cfg {
 	// rxWin10: legacy RF tunable slot (window now fixed; ignored). lizKeep: the id9=0 hold enable (see
 	// haptics.h LIZKEEP_MS).
 	uint8_t rxWin10, lizKeep, isMachineInternal;
-	TypeCfg type[ET_COUNT]; // per-emulated-type back/qam/abSwap/padHaptics
+	TypeCfg type[CFG_BASE_TYPES]; // per-emulated-type back/qam/abSwap/padHaptics
 	// TAIL (appended after CFG_MAGIC 0xCF shipped): back4+D-pad mode assignments. New tail fields go HERE, at
 	// the end, and loadCfg accepts a short file so an upgrade keeps every existing setting -- see CFG_LEN_MIN.
 	uint8_t chordDpad[4];
 	// per-type trackpad->stick mapping: [et][0] = left pad, [et][1] = right pad (PS_*)
-	uint8_t padStick[ET_COUNT][2];
+	uint8_t padStick[CFG_BASE_TYPES][2];
 	// RUMBLE_STYLE_*; 0xFF (short pre-tail file) -> compiled default
 	uint8_t rumbleStyle;
 	// autonomous controller power-off on host sleep (see haptics.h g_suspendOff). 0/1; 0xFF (short
@@ -194,13 +202,23 @@ struct Cfg {
 	uint8_t hdPadScale2;
 	// per-type grip limiter knee (50..100) and haptic style (AUDIO_STYLE_*). 0xFF (an older file) -> the legacy
 	// shared audioStyle / hapticKnee above
-	uint8_t typeLimitKnee[ET_COUNT], typeHapticStyle[ET_COUNT];
+	uint8_t typeLimitKnee[CFG_BASE_TYPES], typeHapticStyle[CFG_BASE_TYPES];
 	// per-type grip rumble strength as percent/2; 0xFF (an older file) -> see loadCfg
-	uint8_t typeRumbleScale2[ET_COUNT];
+	uint8_t typeRumbleScale2[CFG_BASE_TYPES];
 	// Switch Pro HD rumble on/off; anything but 0/1 (an older file) -> on
 	uint8_t switchHd;
 	// the Switch's strength with HD rumble off, percent/2; 0xFF (an older file) -> RUMBLE_SCALE_PCT
 	uint8_t switchPlainScale2;
+	// Switch 2 (ET_SWITCH2) split settings appended at the tail so existing cfg.bin files upgrade in-place
+	TypeCfg typeSwitch2;
+	uint8_t padStickSwitch2[2];
+	uint8_t limitKneeSwitch2;
+	uint8_t hapticStyleSwitch2;
+	uint8_t rumbleScale2Switch2;
+	uint8_t switch2Hd;
+	uint8_t switch2PlainScale2;
+	uint8_t hdPadScale2Switch2;
+	uint8_t switch2GripDefaulted;
 }; // rsvd0 = ex-padSmooth, now the one-shot debug-CDC arm
 
 // Shortest cfg.bin we still accept: the layout as of CFG_MAGIC 0xCF, i.e. everything before the appended tail.
@@ -239,8 +257,18 @@ void saveCfg()
 		  {},
 		  {},
 		  g_switchHd,
-		  (uint8_t)(g_switchPlainScale / 2) };
-	for (int i = 0; i < ET_COUNT; i++) {
+		  (uint8_t)(g_switchPlainScale / 2),
+		  g_type[ET_SWITCH2],
+		  { g_padStickCfg[ET_SWITCH2][0],
+		    g_padStickCfg[ET_SWITCH2][1] },
+		  g_typeLimitKnee[ET_SWITCH2],
+		  g_typeHapticStyle[ET_SWITCH2],
+		  (uint8_t)(g_typeRumbleScale[ET_SWITCH2] / 2),
+		  g_switch2Hd,
+		  (uint8_t)(g_switch2PlainScale / 2),
+		  (uint8_t)(g_hdPadScale2 / 2),
+		  1 };
+	for (int i = 0; i < CFG_BASE_TYPES; i++) {
 		c.type[i] = g_type[i];
 		c.typeLimitKnee[i] = g_typeLimitKnee[i];
 		c.typeHapticStyle[i] = g_typeHapticStyle[i];
@@ -272,8 +300,21 @@ void loadCfg()
 		if (got >= (int)CFG_LEN_MIN && c.magic == CFG_MAGIC) {
 			g_mDiv = c.mDiv ? c.mDiv : 64;
 			g_mFric = c.mFric;
-			for (int i = 0; i < ET_COUNT; i++)
+			for (int i = 0; i < CFG_BASE_TYPES; i++)
 				g_type[i] = c.type[i];
+			if (c.typeSwitch2.abSwap <= 1 &&
+			    c.typeSwitch2.padHaptics <= 1 &&
+			    c.typeSwitch2.rumble <= 1 &&
+			    c.typeSwitch2.ledBright <= 100) {
+				g_type[ET_SWITCH2] = c.typeSwitch2;
+				if (c.switch2GripDefaulted != 1 &&
+				    g_type[ET_SWITCH2].back[0] == 5 &&
+				    g_type[ET_SWITCH2].back[1] == 6) {
+					g_type[ET_SWITCH2].back[0] = 21;
+					g_type[ET_SWITCH2].back[1] = 22;
+					consume = true;
+				}
+			}
 			g_persistMode = c.persistMode ? true : false;
 			// one-shot debug-CDC (Cfg.rsvd0): honor for THIS boot, then consume so the next boot reverts to normal.
 			g_debugCdcThisBoot = c.rsvd0 ? true : false;
@@ -308,11 +349,15 @@ void loadCfg()
 					g_chordDpad[i] = c.chordDpad[i];
 			// Pad->stick mapping: 0xFF (a file predating this tail field) or an out-of-range
 			// value keeps the compiled default (off).
-			for (int i = 0; i < ET_COUNT; i++)
+			for (int i = 0; i < CFG_BASE_TYPES; i++)
 				for (int k = 0; k < 2; k++)
 					if (c.padStick[i][k] <= PS_MAX)
 						g_padStickCfg[i][k] =
 							c.padStick[i][k];
+			for (int k = 0; k < 2; k++)
+				if (c.padStickSwitch2[k] <= PS_MAX)
+					g_padStickCfg[ET_SWITCH2][k] =
+						c.padStickSwitch2[k];
 			// grow a short file to the current layout on the next save
 			if (got < (int)sizeof c)
 				consume = true;
@@ -359,6 +404,11 @@ void loadCfg()
 			if (c.switchPlainScale2 * 2u >= RUMBLE_SCALE_MIN &&
 			    c.switchPlainScale2 * 2u <= RUMBLE_SCALE_MAX)
 				g_switchPlainScale = c.switchPlainScale2 * 2u;
+			if (c.switch2Hd <= 1)
+				g_switch2Hd = c.switch2Hd;
+			if (c.switch2PlainScale2 * 2u >= RUMBLE_SCALE_MIN &&
+			    c.switch2PlainScale2 * 2u <= RUMBLE_SCALE_MAX)
+				g_switch2PlainScale = c.switch2PlainScale2 * 2u;
 			// A file without the grip-limiter byte was saved by a build that predates the wave style, so its
 			// style is that build's default (tone) rather than a choice: skip it once and land on wave.
 			if (c.hapticKnee >= 50 && c.hapticKnee <= 100 &&
@@ -368,9 +418,12 @@ void loadCfg()
 				g_hapticLimitKnee = c.hapticKnee;
 			if (c.hdPadScale2 <= 250)
 				g_hdPadScale = (uint16_t)c.hdPadScale2 * 2;
+			if (c.hdPadScale2Switch2 <= 250)
+				g_hdPadScale2 =
+					(uint16_t)c.hdPadScale2Switch2 * 2;
 			// per-type limiter and haptic style; a file from before them seeds every type with the legacy
 			// shared value (g_hapticLimitKnee, g_audioHapticStyle), and the Switch with its own default
-			for (uint8_t et = 0; et < ET_COUNT; et++) {
+			for (uint8_t et = 0; et < CFG_BASE_TYPES; et++) {
 				uint8_t knee = c.typeLimitKnee[et],
 					style = c.typeHapticStyle[et];
 				g_typeLimitKnee[et] =
@@ -392,6 +445,22 @@ void loadCfg()
 						g_typeRumbleScaleDefault[et] :
 						g_rumbleScale;
 			}
+			g_typeLimitKnee[ET_SWITCH2] =
+				(c.limitKneeSwitch2 >= 50 &&
+				 c.limitKneeSwitch2 <= 100) ?
+					c.limitKneeSwitch2 :
+					g_hapticLimitKnee;
+			g_typeHapticStyle[ET_SWITCH2] =
+				c.hapticStyleSwitch2 <= AUDIO_STYLE_WAVE ?
+					c.hapticStyleSwitch2 :
+					kHapticStyleDefault[ET_SWITCH2];
+			g_typeRumbleScale[ET_SWITCH2] =
+				(c.rumbleScale2Switch2 * 2u >=
+					 RUMBLE_SCALE_MIN &&
+				 c.rumbleScale2Switch2 * 2u <=
+					 RUMBLE_SCALE_MAX) ?
+					(uint16_t)(c.rumbleScale2Switch2 * 2u) :
+					g_typeRumbleScaleDefault[ET_SWITCH2];
 			// The poll RX window is now FIXED (g_rxWin is const) -- any persisted rxWin10 is ignored.
 		}
 		f.close();

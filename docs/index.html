@@ -181,6 +181,7 @@
         <button data-mode="2" class="modebtn">Switch (HORIPAD)</button>
         <button data-mode="3" class="modebtn">Lizard (always)</button>
         <button data-mode="4" class="modebtn">Switch Pro + gyro</button>
+        <button data-mode="13" class="modebtn">Switch 2 Pro</button>
         <button data-mode="5" class="modebtn">PS5 DualSense</button>
         <button data-mode="6" class="modebtn">HID gyro (DS4)</button>
         <button data-mode="9" class="modebtn">PS3 (DualShock 3)</button>
@@ -431,7 +432,7 @@
 </div>
 
 <script>
-const MODE_NAMES = ["Steam (puck)","Xbox 360","Switch (HORIPAD)","Lizard (always)","Switch Pro + gyro","PS5 DualSense","HID gyro (DS4)","PS5 (game/clean)","DS4 (game/clean)","PS3 (DualShock 3)","Original Xbox","DirectInput (sims)","SInput (SDL native)"];
+const MODE_NAMES = ["Steam (puck)","Xbox 360","Switch (HORIPAD)","Lizard (always)","Switch Pro + gyro","PS5 DualSense","HID gyro (DS4)","PS5 (game/clean)","DS4 (game/clean)","PS3 (DualShock 3)","Original Xbox","DirectInput (sims)","SInput (SDL native)","Switch 2 Pro"];
 const CHORD_FIELD = [17, 18, 19];          // back4 + B/X/Y
 const CHORD_DPAD_FIELD = [34, 35, 36, 37]; // back4 + D-pad left/up/right/down (firmware protocol >= 18)
 const CHORD_DPAD_DEF = [9, 8, 7, 2];       // firmware defaults: PS3, DS4 game, PS5 game, Switch HORIPAD
@@ -580,31 +581,39 @@ function renderTrail(){
 $("#trailClear").onclick=()=>{ loopTrail=[]; try{ localStorage.removeItem(TRAIL_KEY); }catch(e){} renderTrail(); log("loop-state trail cleared"); };
 renderTrail();
 
-// Per-emulated-type config (must match firmware ET_* order: Xbox=0, Switch=1, DS4=2, DS5=3). Each type lists
-// only the remap targets that exist on that controller. Field id sent to firmware = 40 + et*9 + k
-// (k: 0..3 back paddles, 4 QAM, 5 A/B-swap, 6 trackpad-haptics, 7 LED brightness, 8 rumble). Blob v17 reads them back at p[73 + et*9 + ...].
+// Per-emulated-type config (must match firmware ET_* order: Xbox=0, Switch 1=1, DS4=2, DS5=3, Switch 2=4).
+// Each type lists only the remap targets that exist on that controller. Field id sent to firmware =
+// 40 + et*9 + k for base types 0..3, or 150 + k for Switch 2 (et=4).
+// (k: 0..3 back paddles, 4 QAM, 5 A/B-swap, 6 trackpad-haptics, 7 LED brightness, 8 rumble).
 const DPAD = {12:"D-pad Up",13:"D-pad Down",14:"D-pad Left",15:"D-pad Right"};
-// Grip limiter knee, percent of full scale (50..100; 100 = off): per type (fields 120..123), or the shared field 115 on older firmware
+// Grip limiter knee, percent of full scale (50..100; 100 = off): per type (fields 120..123, 130), or the shared field 115 on older firmware
 const HAPTIC_KNEES=[50,60,70,80,90,100];
-// Haptics styles of the grips (AUDIO_STYLE_* in config.h): per type (fields 124..127), or the DualSense's field 88 on older firmware
+// Haptics styles of the grips (AUDIO_STYLE_* in config.h): per type (fields 124..127, 131), or the DualSense's field 88 on older firmware
 const HAPTIC_STYLES=[[3,"Wave"],[1,"Tone"],[2,"Split"],[0,"Rumble"]];
 // firmware >= v22 with the per-type blob bytes (payload p[199..206]); set by the status poll
 let g_perTypeHaptics=false;
-// firmware with the per-type rumble strength bytes (payload p[208..211], fields 108..111); set by the status poll
+// firmware with the per-type rumble strength bytes (payload p[208..211], fields 108..112); set by the status poll
 let g_perTypeStrength=false;
 // Grip rumble strength is sent as percent/2 (field 108 + type, or 22 for the active type), so every value must be even.
 const RUMBLE_SCALES=[50,75,100,150,200,250,300,400,500];
-// HD trackpad strength, sent as percent/2 (field 141); 0 = grips only
+// HD trackpad strength, sent as percent/2 (field 141 for Switch 1, 142 for Switch 2); 0 = grips only
 const HD_PAD_SCALES=[0,50,75,100,150,200,300,400,500];
 function nearest(list,v){ return list.reduce((a,b)=>Math.abs(b-v)<Math.abs(a-v)?b:a); }
 const TYPE_DEFS = [
   {key:"XBOX", name:"Xbox", labels:{1:"A",2:"B",3:"X",4:"Y",5:"LB",6:"RB",7:"L3",8:"R3",9:"Back",10:"Start",11:"Guide",19:"LT",20:"RT",...DPAD}},
-  {key:"SWITCH", name:"Switch", labels:{1:"A",2:"B",3:"X",4:"Y",5:"L",6:"R",7:"L-Stick",8:"R-Stick",9:"Minus",10:"Plus",11:"Home",19:"ZL",20:"ZR",...DPAD,18:"Capture / Screenshot"}},
+  {key:"SWITCH", name:"Switch 1", labels:{1:"A",2:"B",3:"X",4:"Y",5:"L",6:"R",7:"L-Stick",8:"R-Stick",9:"Minus",10:"Plus",11:"Home",19:"ZL",20:"ZR",...DPAD,18:"Capture / Screenshot"}},
   {key:"DS4", name:"DS4", labels:{1:"Cross",2:"Circle",3:"Square",4:"Triangle",5:"L1",6:"R1",7:"L3",8:"R3",9:"Create",10:"Options",11:"PS",19:"L2",20:"R2",...DPAD,16:"Touchpad Click"}},
   {key:"DS5", name:"DS5", labels:{1:"Cross",2:"Circle",3:"Square",4:"Triangle",5:"L1",6:"R1",7:"L3",8:"R3",9:"Create",10:"Options",11:"PS",19:"L2",20:"R2",...DPAD,16:"Touchpad Click",17:"Mute"}},
+  {key:"SWITCH2", name:"Switch 2", labels:{1:"A",2:"B",3:"X",4:"Y",5:"L",6:"R",7:"L-Stick",8:"R-Stick",9:"Minus",10:"Plus",11:"Home",19:"ZL",20:"ZR",...DPAD,18:"Capture / Screenshot",21:"GL (Left Grip)",22:"GR (Right Grip)",23:"C (Chat)"}},
 ];
 // Which emulated type a USB mode belongs to (mirror of firmware etypeForMode); -1 = puck mode (no type).
-function etypeForMode(m){ switch(m){case 1:case 10:return 0; case 2:case 4:return 1; case 6:case 8:case 9:return 2; case 5:case 7:return 3; default:return -1;} }
+function etypeForMode(m){ switch(m){case 1:case 10:return 0; case 2:case 4:return 1; case 13:return 4; case 6:case 8:case 9:return 2; case 5:case 7:return 3; default:return -1;} }
+function typeField(et,k){ return (et===4 ? 150 : 40+et*9) + k; }
+function padStickField(et,pad){ return (et===4 ? 160 : PAD_STICK_FIELD0+et*2) + pad; }
+function hapticStyleField(et){ return et===4 ? 131 : 124+et; }
+function hapticKneeField(et){ return et===4 ? 130 : 120+et; }
+function hdRumbleField(et){ return et===4 ? 129 : 128; }
+function hdPadField(et){ return et===4 ? 142 : 141; }
 
 // ===================== Lizard (desktop) binding map =====================
 // Mirrors firmware lizard_map.h. A binding is {outType, od:[7], trig, hold}. Output types and the
@@ -648,8 +657,8 @@ let lizardBusy = false;
 let lizardLoaded = false;  // one-shot: the lizard map is fetched lazily, only once the connected puck proves it speaks v16+
 const BACK_LABELS = ["L4 (back upper-left)","R4 (back upper-right)","L5 (back lower-left)","R5 (back lower-right)"];
 const typeEls = []; // one entry per TYPE_DEFS: {sec, tab, activeDot, back[], qam, abSwap, pad, led, ledV, rumble, padStick[]}
-// Trackpad mapping field ids: PAD_STICK_FIELD0 + et*2 + pad (pad 0 = left, 1 = right). All emulated types
-// support Off/Left/Right stick mapping; Switch also supports D-pad on touch and D-pad on click.
+// Trackpad mapping field ids: PAD_STICK_FIELD0 + et*2 + pad for base types 0..3, or 160 + pad for Switch 2 (et=4).
+// All emulated types support Off/Left/Right stick mapping; Switch 1 and Switch 2 also support D-pad on touch and click.
 const PAD_STICK_FIELD0 = 80;
 const PAD_STICK_OPTS = [[0,"Off (touchpad)"],[1,"Left stick"],[2,"Right stick"]];
 const PAD_STICK_SWITCH_DPAD_OPTS = [[3,"D-pad on touch (Switch Pro)"],[4,"D-pad on click (Switch Pro)"]];
@@ -675,10 +684,11 @@ function setTab(et){
   const bar=document.createElement("div"); bar.style.cssText="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px";
   host.appendChild(bar);
   TYPE_DEFS.forEach((def,et)=>{
+    const isSw=(def.key==="SWITCH"||def.key==="SWITCH2");
     // tab button
     const tab=document.createElement("button"); tab.className="slot-tab"; tab.style.cursor="pointer";
     tab.innerHTML='<span>'+def.name+'</span><span class="active-dot" style="display:none;font-size:11px;color:var(--acc)"> ●</span>';
-    tab.onclick=()=>setTab(et); bar.appendChild(tab);
+    tab.onclick=()=>setTab(et);
     const sec=document.createElement("div"); sec.style.cssText="background:#0e1017;border:1px solid #232a3a;border-radius:8px;padding:12px 14px;display:none";
     const rec={sec,tab,activeDot:tab.querySelector(".active-dot"),back:[],qam:null,abSwap:null,pad:null,led:null,ledV:null,rumble:null,strength:null,hdPad:null,audioHaptics:null,hdRumble:null,hdRumbleLbl:null,audioStyle:null,knee:null,audioGain:null,audioGainV:null,padStick:[]};
     // A/B swap + trackpad haptics + rumble toggles
@@ -695,31 +705,31 @@ function setTab(et){
       rec.audioHaptics=aud;
       aud.onclick=()=>{ const on=aud.classList.contains("active"); setField(31, on?0:1); };
     }
-    if(def.key==="SWITCH"){
-      // Switch Pro HD rumble (field 128): off plays the console's rumble as plain motor rumble
+    if(isSw){
+      // Switch Pro HD rumble (field 128 for Switch 1, 129 for Switch 2): off plays the console's rumble as plain motor rumble
       const hdLbl=document.createElement("label"); hdLbl.textContent="HD Rumble"; hdLbl.style.cssText="flex:0 0 auto;margin:0 0 0 6px"; tog.appendChild(hdLbl);
       const hd=document.createElement("button"); hd.textContent="on"; tog.appendChild(hd);
       rec.hdRumble=hd; rec.hdRumbleLbl=hdLbl;
-      hd.onclick=()=>{ const on=hd.classList.contains("active"); setField(128, on?0:1); };
+      hd.onclick=()=>{ const on=hd.classList.contains("active"); setField(hdRumbleField(et), on?0:1); };
     }
     sec.appendChild(tog);
     rec.abSwap=ab; rec.pad=pad; rec.rumble=rumble;
-    ab.onclick=()=>{ const on=ab.classList.contains("active"); setField(40+et*9+5, on?0:1); };
-    pad.onclick=()=>{ const on=pad.classList.contains("active"); setField(40+et*9+6, on?0:1); };
-    rumble.onclick=()=>{ const on=rumble.classList.contains("active"); setField(40+et*9+8, on?0:1); };
+    ab.onclick=()=>{ const on=ab.classList.contains("active"); setField(typeField(et,5), on?0:1); };
+    pad.onclick=()=>{ const on=pad.classList.contains("active"); setField(typeField(et,6), on?0:1); };
+    rumble.onclick=()=>{ const on=rumble.classList.contains("active"); setField(typeField(et,8), on?0:1); };
     // back paddles
     for(let i=0;i<4;i++){
       const row=document.createElement("div"); row.className="row";
       const lab=document.createElement("label"); lab.textContent=BACK_LABELS[i]; row.appendChild(lab);
       const sel=mkSelect(def,true); row.appendChild(sel); sec.appendChild(row);
-      sel.addEventListener("change",()=>setField(40+et*9+i, +sel.value));
+      sel.addEventListener("change",()=>setField(typeField(et,i), +sel.value));
       rec.back.push(sel);
     }
     // QAM
     { const row=document.createElement("div"); row.className="row";
       const lab=document.createElement("label"); lab.textContent="QAM (3 dots)"; row.appendChild(lab);
       const sel=mkSelect(def,false); row.appendChild(sel); sec.appendChild(row);
-      sel.addEventListener("change",()=>setField(40+et*9+4, +sel.value));
+      sel.addEventListener("change",()=>setField(typeField(et,4), +sel.value));
       rec.qam=sel; }
     // LED brightness
     { const row=document.createElement("div"); row.className="row";
@@ -728,7 +738,7 @@ function setTab(et){
       const vspan=document.createElement("span"); vspan.className="val"; row.appendChild(vspan);
       function fmtLed(v){ return (+v===0)?"Auto":v+"%"; }
       sl.addEventListener("input",()=>{ vspan.textContent=fmtLed(sl.value); });
-      sl.addEventListener("change",()=>setField(40+et*9+7, +sl.value));
+      sl.addEventListener("change",()=>setField(typeField(et,7), +sl.value));
       sec.appendChild(row);
       rec.led=sl; rec.ledV=vspan; }
     // Audio Haptics gain (DS5 only)
@@ -756,45 +766,46 @@ function setTab(et){
     // 1 tone = smooth per-actuator tones, 2 split = below ~80 Hz as rumble, the rest as tones, 3 wave = the haptic
     // channels streamed to the grips (default). The Switch plays HD rumble through the same four. Both are per
     // type on newer firmware.
-    if(def.key==="DS5"||def.key==="SWITCH"){
+    if(def.key==="DS5"||isSw){
       { const row=document.createElement("div"); row.className="row";
         const lab=document.createElement("label"); lab.textContent="Haptics style"; row.appendChild(lab);
         const sty=document.createElement("select");
         for(const [v,lbl] of HAPTIC_STYLES){ const o=document.createElement("option"); o.value=v; o.textContent=lbl; sty.appendChild(o); }
         row.appendChild(sty); sec.appendChild(row);
         rec.audioStyle=sty;
-        sty.addEventListener("change",()=>setField(g_perTypeHaptics?124+et:88, +sty.value)); }
+        sty.addEventListener("change",()=>setField(g_perTypeHaptics?hapticStyleField(et):88, +sty.value)); }
       { const row=document.createElement("div"); row.className="row";
         const lab=document.createElement("label"); lab.textContent="Grip limiter"; row.appendChild(lab);
         const knee=document.createElement("select");
         for(const v of HAPTIC_KNEES){ const o=document.createElement("option"); o.value=v; o.textContent=v===100?"off":v+"%"+(v===70?" (default)":""); knee.appendChild(o); }
         row.appendChild(knee); sec.appendChild(row);
         rec.knee=knee;
-        knee.addEventListener("change",()=>setField(g_perTypeHaptics?120+et:115, +knee.value)); }
+        knee.addEventListener("change",()=>setField(g_perTypeHaptics?hapticKneeField(et):115, +knee.value)); }
     }
-    if(def.key==="SWITCH"){
-      // trackpad tone strength of the HD rumble (field 141); 0 = grips only
+    if(isSw){
+      // trackpad tone strength of the HD rumble (field 141 for Switch 1, 142 for Switch 2); 0 = grips only
       const row=document.createElement("div"); row.className="row";
       const lab=document.createElement("label"); lab.textContent="HD trackpad strength"; row.appendChild(lab);
       const sel=document.createElement("select");
       for(const v of HD_PAD_SCALES){ const o=document.createElement("option"); o.value=v; o.textContent=v===0?"off (grips only)":v+"%"+(v===100?" (default)":""); sel.appendChild(o); }
       row.appendChild(sel); sec.appendChild(row);
       rec.hdPad=sel;
-      sel.addEventListener("change",()=>setField(141, (+sel.value)/2));
+      sel.addEventListener("change",()=>setField(hdPadField(et), (+sel.value)/2));
     }
     // trackpad -> joystick mapping (one select per pad)
     for(let pad=0; pad<2; pad++){
       const row=document.createElement("div"); row.className="row";
       const lab=document.createElement("label"); lab.textContent=PAD_STICK_LABELS[pad]; row.appendChild(lab);
       const sel=document.createElement("select");
-      const opts=(et===1) ? [...PAD_STICK_OPTS, ...PAD_STICK_SWITCH_DPAD_OPTS] : PAD_STICK_OPTS;
+      const opts=isSw ? [...PAD_STICK_OPTS, ...PAD_STICK_SWITCH_DPAD_OPTS] : PAD_STICK_OPTS;
       for(const [v,lbl] of opts){ const o=document.createElement("option"); o.value=v; o.textContent=lbl; sel.appendChild(o); }
       row.appendChild(sel); sec.appendChild(row);
-      sel.addEventListener("change",()=>setField(PAD_STICK_FIELD0+et*2+pad, +sel.value));
+      sel.addEventListener("change",()=>setField(padStickField(et,pad), +sel.value));
       rec.padStick.push(sel);
     }
     host.appendChild(sec); typeEls.push(rec);
   });
+  [0,1,4,2,3].forEach(et=>bar.appendChild(typeEls[et].tab));
   setTab(0);
 })();
 for(const sel of document.querySelectorAll("select.chord")){
@@ -1206,13 +1217,17 @@ function applyBlob(p){
   setSlider("mDiv",mDiv); setSlider("mFric",mFric);
   $("#persistMode").textContent = persistMode? "on":"off"; $("#persistMode").classList.toggle("active",!!persistMode);
   { const la=(p.length>179?p[179] === 0xEE:false); $("#isMachineInternal").textContent = la?"on":"off"; $("#isMachineInternal").classList.toggle("active",!!la); }
-  // per-type button config (blob v10/v17): 4 types x 9 bytes. readBlob() strips the 2-byte [0xA5][len] header, so
-  // the firmware's buffer index 75 lands at JS index 73 here.
-  if(p.length>=73+TYPE_DEFS.length*9){
+  // per-type button config (blob v10/v17): 4 base types x 9 bytes at p[73..108], plus Switch 2 at p[212..227].
+  // readBlob() strips the 2-byte [0xA5][len] header, so firmware buffer index 75 lands at JS index 73 here.
+  if(p.length>=73+4*9){
     const activeEt=etypeForMode(mode);
+    const sw2Cap=p.length>=228;
     typeEls.forEach((rec,et)=>{
-      const q=73+et*9;
+      rec.tab.style.display = (et===4 && !sw2Cap) ? "none" : "";
+      const q=(et===4)?(sw2Cap?212:73+9):(73+et*9);
       const back=[p[q],p[q+1],p[q+2],p[q+3]], qam=p[q+4], ab=p[q+5], pad=p[q+6], led=p[q+7], rum=p[q+8];
+      const hdCap=(et===4)?sw2Cap:(p.length>207);
+      const hdOn=hdCap?(p[et===4?226:207]!==0):true;
       rec.back.forEach((sel,i)=>{ if(document.activeElement!==sel) sel.value=back[i]; });
       if(document.activeElement!==rec.qam) rec.qam.value=qam;
       rec.abSwap.textContent=ab?"on":"off"; rec.abSwap.classList.toggle("active",!!ab);
@@ -1224,40 +1239,40 @@ function applyBlob(p){
         rec.audioHaptics.classList.toggle("active",audOn);
       }
       if(rec.audioStyle){
-        // per-type bytes (fw p[205+et] = payload p[203+et]); older firmware has the DualSense's only
-        const raw = g_perTypeHaptics ? p[203+et] : (et===3 ? p[196] : 3);
+        // per-type bytes (fw p[205+et] = payload p[203+et], Switch 2 at p[224]); older firmware has the DualSense's only
+        const raw = (et===4 && sw2Cap) ? p[224] : (g_perTypeHaptics ? p[203+(et===4?1:et)] : (et===3 ? p[196] : 3));
         const v = raw<=3 ? raw : 3;
         if(document.activeElement!==rec.audioStyle) rec.audioStyle.value=v;
         // older firmware has no Switch style
         rec.audioStyle.disabled = !g_perTypeHaptics && et!==3;
       }
       if(rec.strength){
-        // per-type bytes (fw p[210+et] = payload p[208+et]); older firmware only has the active type's
-        const hdOn = p.length>207 ? p[207]!==0 : true, def = (et===1 && hdOn) ? 100 : 200;
+        // per-type bytes (fw p[210+et] = payload p[208+et], Switch 2 at p[225]); older firmware only has the active type's
+        const def = ((et===1 || et===4) && hdOn) ? 100 : 200;
         for(const o of rec.strength.options) o.textContent=o.value+"%"+(+o.value===def?" (default)":"");
-        const v = g_perTypeStrength ? p[208+et]*2 : (et===activeEt ? rumbleScale : null);
+        const v = (et===4 && sw2Cap) ? p[225]*2 : (g_perTypeStrength ? p[208+(et===4?1:et)]*2 : (et===activeEt ? rumbleScale : null));
         // a strength set from the console can land between the presets -- show the nearest one
         if(v!==null && document.activeElement!==rec.strength) rec.strength.value=nearest(RUMBLE_SCALES,v);
         rec.strength.disabled = !rumbleCap || (!g_perTypeStrength && et!==activeEt);
       }
       if(rec.hdPad){
-        if(pcmCap && document.activeElement!==rec.hdPad) rec.hdPad.value=nearest(HD_PAD_SCALES,p[198]*2);
+        const padVal = (et===4 && sw2Cap) ? p[227]*2 : p[198]*2;
+        if(pcmCap && document.activeElement!==rec.hdPad) rec.hdPad.value=nearest(HD_PAD_SCALES,padVal);
         rec.hdPad.disabled = !pcmCap;
       }
       if(rec.hdRumble){
-        // payload p[207] = firmware p[209]; older firmware has no toggle and always renders HD
-        const cap=p.length>207, on=cap?(p[207]!==0):true;
-        rec.hdRumble.style.display=rec.hdRumbleLbl.style.display=cap?"":"none";
-        rec.hdRumble.textContent=on?"on":"off";
-        rec.hdRumble.classList.toggle("active",on);
+        // payload p[207] (Switch 1) or p[226] (Switch 2); older firmware has no toggle and always renders HD
+        rec.hdRumble.style.display=rec.hdRumbleLbl.style.display=hdCap?"":"none";
+        rec.hdRumble.textContent=hdOn?"on":"off";
+        rec.hdRumble.classList.toggle("active",hdOn);
       }
       if(rec.knee){
-        const k = g_perTypeHaptics ? p[199+et] : p[197];
+        const k = (et===4 && sw2Cap) ? p[223] : (g_perTypeHaptics ? p[199+(et===4?1:et)] : p[197]);
         if(document.activeElement!==rec.knee) rec.knee.value=HAPTIC_KNEES.reduce((a,b)=>Math.abs(b-k)<Math.abs(a-k)?b:a);
         rec.knee.disabled = !pcmCap;
       }
       // with HD rumble off the Switch plays plain rumble, which the style and limiter don't touch
-      if(rec.hdRumble && p.length>207 && p[207]===0){
+      if(rec.hdRumble && hdCap && !hdOn){
         if(rec.audioStyle) rec.audioStyle.disabled=true;
         if(rec.knee) rec.knee.disabled=true;
       }
@@ -1272,13 +1287,14 @@ function applyBlob(p){
       rec.padStick.forEach((sel,pad)=>{
         // hidden entirely on firmware too old to speak the mapping, so the panel never shows a dead control
         sel.parentNode.classList.toggle("hide", !padStickCap);
-        if(padStickCap && document.activeElement!==sel) sel.value=p[185+et*2+pad];
+        const psIdx = (et===4 && sw2Cap) ? (221+pad) : (185+(et===4?1:et)*2+pad);
+        if(padStickCap && document.activeElement!==sel) sel.value=p[psIdx];
       });
       // dot marks the type matching the current puck mode
       rec.activeDot.style.display = (et===activeEt) ? "" : "none";
     });
     // open the tab for the current mode's type on first load (then leave the user's choice alone)
-    if(!tabInited){ tabInited=true; setTab(activeEt>=0?activeEt:0); }
+    if(!tabInited){ tabInited=true; setTab(activeEt>=0?(activeEt===4 && !sw2Cap ? 1 : activeEt):0); }
   }
   if(p.length>=60){ const s16=(o)=>{ let v=p[o]|(p[o+1]<<8); return v>32767?v-65536:v; };
     const ax=s16(54),ay=s16(56),az=s16(58);
@@ -1330,7 +1346,7 @@ function applyDongleStatus(p){
     const q=3+i*26; if(q+26>p.length) break;
     const dec=new TextDecoder("latin1");
     let serial=dec.decode(new Uint8Array(p.slice(q+10,q+26)));
-    const z=serial.indexOf(" "); if(z>=0) serial=serial.slice(0,z);
+    const z=serial.indexOf("\0"); if(z>=0) serial=serial.slice(0,z);
     serial=serial.replace(/[^\x20-\x7e]/g,"").trim(); // strip NUL padding / stray non-printables
     bonds.push({slot:p[q], alive:!!p[q+1],
       puuid:p.slice(q+2,q+6), iuuid:p.slice(q+6,q+10), serial});
@@ -1390,11 +1406,11 @@ function buildBackup(p, bp){
   const mask=bp[1], bonds=[];
   for(let s=0;s<4;s++){ const rec=bp.slice(2+s*24, 2+s*24+24);
     bonds.push({slot:s, used:!!((mask>>s)&1), rec:hexEnc(rec)}); }
-  const types=[];
-  for(let et=0; et<TYPE_DEFS.length; et++){ const q=73+et*9;
+  const types=[], nTypes=p.length>=228?TYPE_DEFS.length:4;
+  for(let et=0; et<nTypes; et++){ const q=(et===4)?212:(73+et*9);
     const t={back:[p[q],p[q+1],p[q+2],p[q+3]], qam:p[q+4], abSwap:p[q+5], pad:p[q+6], led:p[q+7], rumble:p[q+8]};
     // pad->stick mapping only exists from protocol v20; omit on older pucks so a restore can't replay defaults
-    if(p[0]>=21 && p.length>192) t.padStick=[p[185+et*2],p[186+et*2]];
+    if(p[0]>=21 && p.length>192) t.padStick=(et===4)?[p[221],p[222]]:[p[185+et*2],p[186+et*2]];
     types.push(t); }
   const cfg={ mode:p[1], mDiv:p[2], mFric:p[3], persistMode:p[22], chord:[p[23],p[24],p[25]], types };
   // D-pad chords only exist from protocol v18, the Switch gyro mapping from v19; omit the keys entirely on
@@ -1452,7 +1468,7 @@ async function importBackup(file){
   // Pre-count every write so the bar tracks real progress: settings (6 base fields, + 4 D-pad chords and the
   // Switch gyro mapping when the backup carries them), per-type config (9 each), the lizard bindings, 4 bond
   // slots, and the final commit.
-  const typeN=Array.isArray(c.types)?Math.min(c.types.length,4):0;
+  const typeN=Array.isArray(c.types)?Math.min(c.types.length,TYPE_DEFS.length):0;
   const lizardN=(Array.isArray(c.lizardMap) && lizardCapable())?Math.min(c.lizardMap.length,LZ_MAX):0;
   const baseN=6 + (Array.isArray(c.chordD)?4:0) + (c.swGyroLegacy!==undefined?1:0);
   const padStickN=Array.isArray(c.types)?c.types.slice(0,typeN).filter(t=>Array.isArray(t.padStick)).length*2:0;
@@ -1491,11 +1507,11 @@ async function importBackup(file){
     // was added to the panel export; guard so a missing field never crashes the import mid-flight.
     if(typeN){
       for(let et=0; et<typeN; et++){ const t=c.types[et];
-        for(let k=0;k<4;k++) await sf(40+et*9+k, t.back[k]);
-        await sf(40+et*9+4, t.qam); await sf(40+et*9+5, t.abSwap?1:0);
-        await sf(40+et*9+6, t.pad?1:0); await sf(40+et*9+7, t.led);
-        await sf(40+et*9+8, t.rumble!==undefined?t.rumble:1);
-        if(Array.isArray(t.padStick)){ await sf(PAD_STICK_FIELD0+et*2, t.padStick[0]); await sf(PAD_STICK_FIELD0+et*2+1, t.padStick[1]); } }
+        for(let k=0;k<4;k++) await sf(typeField(et, k), t.back[k]);
+        await sf(typeField(et, 4), t.qam); await sf(typeField(et, 5), t.abSwap?1:0);
+        await sf(typeField(et, 6), t.pad?1:0); await sf(typeField(et, 7), t.led);
+        await sf(typeField(et, 8), t.rumble!==undefined?t.rumble:1);
+        if(Array.isArray(t.padStick)){ await sf(padStickField(et, 0), t.padStick[0]); await sf(padStickField(et, 1), t.padStick[1]); } }
       log("settings replayed ("+(baseN+typeN*9)+" fields)");
     } else { log("settings replayed ("+baseN+" fields — no per-type config in this backup)"); }
     // restore the lizard map if the backup includes it (version 2+) and the puck speaks v16+.
@@ -2460,8 +2476,8 @@ for(const sel of document.querySelectorAll("select.chordD")){
 }
 for(const b of document.querySelectorAll(".modebtn")){
   b.onclick=()=>{ const m=+b.dataset.mode;
-    const clean=(m===7||m===8||m===9);
-    const msg="Switch to "+MODE_NAMES[m]+"? The copycat will reboot."+(clean?"\n\nNOTE: the game/clean PlayStation modes (and PS3) drop WebUSB + host-wake, so THIS PANEL WILL DISCONNECT and can't reach the device while it's in this mode. To get back, chord on the controller: hold all four back paddles (L4+R4+L5+R5) + A to return to Steam mode. The back4+D-pad chords are how you get back INTO these modes without the panel — check their assignments in the chords card first.":"");
+    const clean=(m===7||m===8||m===9||m===13);
+    const msg="Switch to "+MODE_NAMES[m]+"? The copycat will reboot."+(clean?"\n\nNOTE: the game/clean PlayStation modes (PS3, Switch 2 Pro, etc.) drop WebUSB + host-wake, so THIS PANEL WILL DISCONNECT and can't reach the device while it's in this mode. To get back, chord on the controller: hold all four back paddles (L4+R4+L5+R5) + A to return to Steam mode. The back4+D-pad chords are how you get back INTO these modes without the panel — check their assignments in the chords card first.":"");
     if(confirm(msg)){ send([0x03, m]); log("mode switch requested — device will reboot"); } };
 }
 updateUf2UI();
