@@ -79,6 +79,7 @@ just points at the `OpenPuck` directory). Modules are layered low → high:
 | `mode_xinput.{h,cpp}` | **Xbox** personality: a custom TinyUSB XInput class driver + right-pad mouse + rumble relay. |
 | `mode_switch_hori.{h,cpp}` | **Switch HORIPAD** personality (console-friendly, no handshake). |
 | `mode_switch_pro.{h,cpp}` | **Switch Pro** personality: the full Nintendo USB handshake/subcommand state machine + SPI calibration + gyro. |
+| `mode_switch_pro2.{h,cpp}` | **Switch 2 Pro** personality: USB HID + vendor bulk command/flash/pairing protocol + gyro + HD rumble. |
 | `mode_ps5.{h,cpp}` | **PS5 DualSense** personality: gyro + split trackpad. |
 | `mode_hidgyro.{h,cpp}` | **DS4-layout** generic HID gyro personality (motion-aware PC games). |
 | `mode_dinput.{h,cpp}` | **DirectInput** personality: two joystick collections so every analog input (sticks, triggers, both trackpads, gyro) is bindable at once in flight/space sims. |

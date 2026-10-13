@@ -398,7 +398,7 @@ static void sw2Build09(uint8_t bond, uint8_t out[63])
 	uint8_t lvl = (uint8_t)((pct * 9u + 50u) / 100u);
 	if (lvl > 9)
 		lvl = 9;
-	uint8_t chg = (bond < NSLOT && g_batteryState[bond] == 2) ? 0x02 : 0x00;
+	uint8_t chg = (bond < NSLOT && g_batteryState[bond] == 2) ? 0x03 : 0x01;
 	out[1] = (uint8_t)((lvl << 2) | chg);
 
 	uint32_t b = g_in[bond].buttons | padDpadButtons(g_in[bond]);
@@ -547,7 +547,8 @@ static const uint8_t SW2_FLASH_1FB070[18] = { 0x99, 0x0E, 0xFF, 0x0B, 0xFF,
 static uint8_t g_sw2UserCal[0x100];
 static bool g_sw2CalInit = false;
 
-// Pairing info at 0x1FA000 (updated by 0x03/0x07 or 0x15)
+// Pairing info at 0x1FA000 (updated by 0x03/0x07, 0x03/0x08, or 0x15)
+static uint8_t g_sw2PairCount = 0x02;
 static uint8_t g_sw2HostAddr[6] = { 0x98, 0xE2, 0x55, 0x2E, 0x31, 0x4B };
 static uint8_t g_sw2LtkRev[16] = { 0xD6, 0x2C, 0xC6, 0x34, 0xD3, 0x57,
 				   0xA0, 0x48, 0xE9, 0x89, 0x6F, 0x98,
@@ -600,7 +601,7 @@ static void sw2FlashRead(uint32_t addr, uint8_t len, uint8_t *dst)
 			 a < 0x175000 + sizeof SW2_FLASH_175000)
 			v = SW2_FLASH_175000[a - 0x175000];
 		else if (a == 0x1FA000)
-			v = 0x02;
+			v = g_sw2PairCount;
 		else if (a >= 0x1FA008 && a < 0x1FA00E)
 			v = g_sw2HostAddr[a - 0x1FA008];
 		else if (a >= 0x1FA01A && a < 0x1FA02A)
@@ -787,10 +788,14 @@ void swPro2BulkCommand(const uint8_t *req, uint8_t len)
 				for (int i = 0; i < 6; i++)
 					g_sw2HostAddr[i] = d[5 - i];
 				memcpy(g_sw2LtkRev, d + 6, 16);
+				g_sw2PairCount = 0x02;
 			}
 			resp[4] = 0x10;
 			resp[5] = 0x78;
+		} else if (sub == 0x08) {
+			g_sw2PairCount = 0x00;
 		} else if (sub == 0x09) {
+			g_sw2PairCount = 0x02;
 			resp[4] = 0x10;
 			resp[5] = 0x78;
 		} else if (sub == 0x0A) {
@@ -963,6 +968,7 @@ void swPro2BulkCommand(const uint8_t *req, uint8_t len)
 				sw2AesEcbChallenge(d + 1, resp + 9);
 			respLen = 25;
 		} else if (sub == 0x03) {
+			g_sw2PairCount = 0x02;
 			resp[8] = 0x01;
 			respLen = 9;
 		}
