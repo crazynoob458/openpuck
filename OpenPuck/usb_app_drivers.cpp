@@ -2,6 +2,7 @@
 
 extern "C" const usbd_class_driver_t *usbd_app_driver_get_cb(uint8_t *count)
 {
+	// clang-format off
 	static const usbd_class_driver_t drivers[] = {
 		*puckHidClassDriver(),
 		*xinputClassDriver(),
@@ -9,6 +10,7 @@ extern "C" const usbd_class_driver_t *usbd_app_driver_get_cb(uint8_t *count)
 		*switch2ProClassDriver(),
 		*uac1_get_driver(),
 	};
+	// clang-format on
 
 	*count = sizeof(drivers) / sizeof(drivers[0]);
 	return drivers;
