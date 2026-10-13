@@ -89,10 +89,12 @@ static volatile bool g_sw2VendorCommandPending = false;
 static volatile bool g_sw2VendorInFlight = false;
 static volatile bool g_sw2VendorOutRearmPending = false;
 static volatile uint8_t g_sw2VendorCommandLen = 0;
+static volatile uint16_t g_sw2VendorRxLen = 0;
+static volatile uint16_t g_sw2VendorRxExpected = 0;
 static volatile uint8_t g_sw2VendorReplyLen = 0;
 static volatile uint8_t g_sw2VendorReplyOffset = 0;
 static uint8_t g_sw2VendorOut[64];
-static uint8_t g_sw2VendorCmd[64];
+static uint8_t g_sw2VendorCmd[128];
 static uint8_t g_sw2VendorReply[96];
 static uint8_t g_sw2ControlReply[64];
 static const uint8_t SW2_VENDOR_IDENTITY[64] = {
@@ -620,7 +622,8 @@ static uint8_t sw2HandleFlashCommand(const uint8_t *cmd, uint8_t n,
 		sw2EnsureUserCal();
 		if (address >= 0x001fc000 && address < 0x001fd000)
 			memset(g_sw2UserCal, 0xff, sizeof g_sw2UserCal);
-		return sw2QueueDataHeader(0x02, cmd[2], sub, reply);
+		sw2DataHeader(reply, 0x02, cmd[2], sub);
+		return 12;
 	}
 	if (sub == 0x02 || sub == 0x05) {
 		sw2EnsureUserCal();
@@ -632,7 +635,13 @@ static uint8_t sw2HandleFlashCommand(const uint8_t *cmd, uint8_t n,
 			if (a >= 0x001fc000 && a < 0x001fc100)
 				g_sw2UserCal[a - 0x001fc000] = cmd[16 + i];
 		}
-		return sw2QueueDataHeader(0x02, cmd[2], sub, reply);
+		sw2DataHeader(reply, 0x02, cmd[2], sub);
+		memcpy(reply + 12, cmd + 12, 4);
+		if (sub == 0x05)
+			return 16;
+		reply[8] = 0x40;
+		sw2FillFlashBlock(address, reply + 16, 0x40);
+		return 80;
 	}
 
 	uint8_t requested;
@@ -1130,6 +1139,8 @@ static void sw2DriverReset(uint8_t rhport)
 	g_sw2VendorCommandPending = false;
 	g_sw2VendorInFlight = false;
 	g_sw2VendorOutRearmPending = false;
+	g_sw2VendorRxLen = 0;
+	g_sw2VendorRxExpected = 0;
 	g_sw2VendorReplyLen = 0;
 	g_sw2VendorReplyOffset = 0;
 	g_sw2InputEnabled = false;
@@ -1220,11 +1231,60 @@ static bool sw2DriverXfer(uint8_t rhport, uint8_t ep, xfer_result_t result,
 		if (result == XFER_RESULT_SUCCESS && transferred > 0) {
 			uint8_t n =
 				(uint8_t)(transferred > 64 ? 64 : transferred);
-			memcpy(g_sw2VendorCmd, g_sw2VendorOut, n);
-			g_sw2VendorCommandLen = n;
+			if (g_sw2VendorRxExpected == 0) {
+				uint16_t total = n;
+				if (n >= 8 && g_sw2VendorOut[1] == 0x91) {
+					uint16_t payload =
+						(uint16_t)g_sw2VendorOut[5] |
+						((uint16_t)g_sw2VendorOut[6]
+						 << 8);
+					total = (uint16_t)(8 + payload);
+				}
+				memcpy(g_sw2VendorCmd, g_sw2VendorOut, n);
+				if (n == 64 && total > 64) {
+					g_sw2VendorRxLen = 64;
+					g_sw2VendorRxExpected = total;
+					if (!usbd_edpt_xfer(
+						    rhport, g_sw2VendorEpOut,
+						    g_sw2VendorOut,
+						    sizeof g_sw2VendorOut))
+						g_sw2VendorOutRearmPending =
+							true;
+					return true;
+				}
+				g_sw2VendorCommandLen = n;
+				g_sw2VendorCommandPending = true;
+				return true;
+			}
+
+			if (g_sw2VendorRxLen < sizeof g_sw2VendorCmd) {
+				uint16_t space = (uint16_t)(
+					sizeof g_sw2VendorCmd -
+					g_sw2VendorRxLen);
+				uint8_t copy = n > space ? (uint8_t)space : n;
+				memcpy(g_sw2VendorCmd + g_sw2VendorRxLen,
+				       g_sw2VendorOut, copy);
+			}
+			g_sw2VendorRxLen = (uint16_t)(g_sw2VendorRxLen + n);
+			if (n == 64 &&
+			    g_sw2VendorRxLen < g_sw2VendorRxExpected) {
+				if (!usbd_edpt_xfer(rhport, g_sw2VendorEpOut,
+						    g_sw2VendorOut,
+						    sizeof g_sw2VendorOut))
+					g_sw2VendorOutRearmPending = true;
+				return true;
+			}
+			g_sw2VendorCommandLen =
+				g_sw2VendorRxLen > sizeof g_sw2VendorCmd ?
+					(uint8_t)sizeof g_sw2VendorCmd :
+					(uint8_t)g_sw2VendorRxLen;
+			g_sw2VendorRxLen = 0;
+			g_sw2VendorRxExpected = 0;
 			g_sw2VendorCommandPending = true;
 			return true;
 		}
+		g_sw2VendorRxLen = 0;
+		g_sw2VendorRxExpected = 0;
 		if (!usbd_edpt_xfer(rhport, g_sw2VendorEpOut, g_sw2VendorOut,
 				    sizeof g_sw2VendorOut))
 			g_sw2VendorOutRearmPending = true;
