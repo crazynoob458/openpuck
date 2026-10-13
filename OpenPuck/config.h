@@ -67,7 +67,8 @@
 // present). Cost: no config panel / host-wake while in these modes; chord back to Steam (back4 + A) for the panel.
 static inline bool modeIsCleanPS(uint8_t m)
 {
-	return m == MODE_PS5_GAME || m == MODE_DS4_GAME || m == MODE_PS3;
+	return m == MODE_PS5_GAME || m == MODE_DS4_GAME || m == MODE_PS3 ||
+	       m == MODE_SW_PRO2;
 }
 
 static inline bool modeIsPS(uint8_t m)

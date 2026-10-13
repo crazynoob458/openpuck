@@ -691,7 +691,8 @@ bool hapticSteamRumble(uint16_t lowFreq, uint16_t highFreq, uint8_t slot)
 	if (slot >= NSLOT)
 		return false;
 	// Switch Pro renders HD rumble unless it is off; the styles apply to every other mode
-	if (g_usbMode == MODE_SW_PRO && g_switchHd) {
+	if ((g_usbMode == MODE_SW_PRO || g_usbMode == MODE_SW_PRO2) &&
+	    g_switchHd) {
 		hapticSwitchHd(slot, lowFreq, lowFreq, highFreq, highFreq);
 		return true;
 	}
@@ -928,8 +929,9 @@ static void hapticHdTask()
 		__set_PRIMASK(pm);
 		uint8_t style = g_typeHapticStyle[ET_SWITCH];
 		bool wave = style == AUDIO_STYLE_WAVE;
-		bool enabled = g_usbMode == MODE_SW_PRO && g_switchHd &&
-			       g_rumble && g_hapticRelay &&
+		bool enabled = (g_usbMode == MODE_SW_PRO ||
+				g_usbMode == MODE_SW_PRO2) &&
+			       g_switchHd && g_rumble && g_hapticRelay &&
 			       !USBDevice.suspended();
 		bool on = snapshot.bands[0] || snapshot.bands[1] ||
 			  snapshot.bands[2] || snapshot.bands[3];
@@ -2689,9 +2691,9 @@ void hapticInit()
 static const uint32_t IMU_KEEP_MS = 5000;
 static bool modeWantsImu(uint8_t m)
 {
-	return m == MODE_SW_PRO || m == MODE_PS5 || m == MODE_PS5_GAME ||
-	       m == MODE_HIDGYRO || m == MODE_DS4_GAME || m == MODE_PS3 ||
-	       m == MODE_DINPUT || m == MODE_SINPUT;
+	return m == MODE_SW_PRO || m == MODE_SW_PRO2 || m == MODE_PS5 ||
+	       m == MODE_PS5_GAME || m == MODE_HIDGYRO || m == MODE_DS4_GAME ||
+	       m == MODE_PS3 || m == MODE_DINPUT || m == MODE_SINPUT;
 }
 // Steam can leave the controller's persisted IMU mode off, and it survives across pucks. Every emulated
 // gyro mode needs the raw RF samples that setting suppresses, so write raw accel + gyro for this slot.

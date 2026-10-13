@@ -380,6 +380,14 @@ extern "C" uint8_t const *__real_tud_descriptor_device_cb(void);
 extern "C" uint8_t const *__wrap_tud_descriptor_device_cb(void)
 {
 	const uint8_t *desc = __real_tud_descriptor_device_cb();
+	if (g_usbMode == MODE_SW_PRO2) {
+		static tusb_desc_device_t s_sw2Dev __attribute__((aligned(4)));
+		memcpy(&s_sw2Dev, desc, sizeof s_sw2Dev);
+		s_sw2Dev.bDeviceClass = 0xEF;
+		s_sw2Dev.bDeviceSubClass = 0x02;
+		s_sw2Dev.bDeviceProtocol = 0x01;
+		return (const uint8_t *)&s_sw2Dev;
+	}
 	if (g_usbMode != MODE_PS5_GAME)
 		return desc;
 	static tusb_desc_device_t s_noSerial __attribute__((aligned(4)));

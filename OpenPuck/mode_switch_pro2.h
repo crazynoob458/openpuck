@@ -7,9 +7,14 @@ class SwitchPro2Controller : public IController {
     public:
 	void begin() override;
 	void task() override;
+	bool dynamicMount() const override
+	{
+		return true;
+	}
+	uint8_t maxSlots() const override;
 	void usbIdentity() override;
+	void beginPool() override;
+	void mountSlots(uint8_t k) override;
 };
 
 extern SwitchPro2Controller g_switchPro2;
-
-void swPro2BulkCommand(const uint8_t *req, uint8_t len);

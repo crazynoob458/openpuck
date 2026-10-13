@@ -47,7 +47,7 @@ EXTRA_FLAGS ?=
 # so we wrap: webusb_config.cpp takes XID and passes everything else to __real_.
 # The device descriptor is wrapped the same way (mode_ps5.cpp): the clean DualSense mode must report no
 # serial string, and the Adafruit core always sets iSerialNumber.
-OPENPUCK_LINK_FLAGS ?= -Wl,--wrap=tud_vendor_control_xfer_cb -Wl,--wrap=tud_descriptor_device_cb
+OPENPUCK_LINK_FLAGS ?= -Wl,--wrap=tud_vendor_control_xfer_cb -Wl,--wrap=tud_descriptor_device_cb -Wl,--wrap=tud_hid_descriptor_report_cb -Wl,--wrap=tud_hid_get_report_cb -Wl,--wrap=tud_hid_set_report_cb
 # {build.flags.usb} is expanded by arduino-cli (VID/PID/strings); pass it through verbatim.
 USB_EXTRA_FLAGS = -DNRF52840_XXAA {build.flags.usb} -DCFG_TUD_HID=$(CFG_TUD_HID) -DCFG_TUD_TASK_QUEUE_SZ=$(CFG_TUD_TASK_QUEUE_SZ) -DCFG_TUD_VENDOR_TX_BUFSIZE=$(CFG_TUD_VENDOR_TX_BUFSIZE) $(EXTRA_FLAGS)
 # When BUILD_PATH is set, --clean + path flags are injected; omitted for fast incremental dev builds.

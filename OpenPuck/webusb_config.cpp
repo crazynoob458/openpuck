@@ -12,7 +12,6 @@
 #include "fw_update.h"
 #include "usb_tx.h"
 #include "usb_mount.h" // modeSwitchReboot()
-#include "mode_switch_pro2.h"
 #include <Arduino.h>
 #include <string.h>
 
@@ -25,6 +24,8 @@ Adafruit_USBD_WebUSB usb_web;
 // the panel sends.
 bool xboxOgVendorControlXfer(uint8_t rhport, uint8_t stage,
 			     const tusb_control_request_t *request);
+bool switch2ProVendorControlXfer(uint8_t rhport, uint8_t stage,
+				 const tusb_control_request_t *request);
 extern "C" bool
 __real_tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
 				  const tusb_control_request_t *request);
@@ -34,6 +35,9 @@ __wrap_tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
 {
 	if (g_usbMode == MODE_XBOX_OG &&
 	    xboxOgVendorControlXfer(rhport, stage, request))
+		return true;
+	if (g_usbMode == MODE_SW_PRO2 &&
+	    switch2ProVendorControlXfer(rhport, stage, request))
 		return true;
 	return __real_tud_vendor_control_xfer_cb(rhport, stage, request);
 }
@@ -679,35 +683,16 @@ void webusbPoll()
 	static uint8_t buf[160];
 	static uint8_t n = 0;
 	while (usb_web.available()) {
-		while (usb_web.available() && n < sizeof buf) {
-			int c = usb_web.read();
-			if (c < 0)
-				break;
+		int c = usb_web.read();
+		if (c < 0)
+			break;
+		if (n < sizeof buf)
 			buf[n++] = (uint8_t)c;
-		}
 		// process complete commands from the front of buf
 		for (;;) {
 			if (n == 0)
 				break;
 			uint8_t op = buf[0];
-			// Switch 2 Pro shares the vendor Bulk endpoint with the
-			// panel; its commands carry direction byte 0x91 at [1].
-			if (g_usbMode == MODE_SW_PRO2 && op >= 0x01 &&
-			    op <= 0x18 && n >= 2 && buf[1] == 0x91) {
-				if (n < 8)
-					break;
-				uint16_t pktLen = (uint16_t)8 + buf[5];
-				if (pktLen > sizeof buf) {
-					memmove(buf, buf + 1, --n);
-					continue;
-				}
-				if (n < pktLen)
-					break;
-				swPro2BulkCommand(buf, (uint8_t)pktLen);
-				memmove(buf, buf + pktLen, n - pktLen);
-				n -= (uint8_t)pktLen;
-				continue;
-			}
 			// 0x16 = test rumble (v21); extend this range whenever a new opcode is added, or the
 			// parser drops it as garbage and the handler below never runs.
 			if ((op < 0x01 || op > 0x16) &&

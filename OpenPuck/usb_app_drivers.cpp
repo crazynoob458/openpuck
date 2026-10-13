@@ -6,6 +6,7 @@ extern "C" const usbd_class_driver_t *usbd_app_driver_get_cb(uint8_t *count)
 		*puckHidClassDriver(),
 		*xinputClassDriver(),
 		*xboxOgClassDriver(),
+		*switch2ProClassDriver(),
 		*uac1_get_driver(),
 	};
 
