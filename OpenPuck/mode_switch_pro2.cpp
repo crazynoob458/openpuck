@@ -1,9 +1,9 @@
 // mode_switch_pro2.cpp -- Nintendo Switch 2 Pro Controller (057E:2069).
 //
-// The USB descriptors are byte-for-byte captures of a physical controller. The
-// native 0x09 motion packing is still undocumented, so this implementation
-// deliberately advertises zero 0x09 motion length and carries decoded Steam IMU
-// samples in the documented common 0x05 report.
+// The USB descriptors are byte-for-byte captures of a physical controller.
+// Native 0x09 reports carry the 30-byte projective-quaternion + Q16.16
+// accelerometer motion block used by the Switch 2 console, while 0x05 reports
+// carry raw 6-axis IMU samples used by SDL3/Steam.
 #include "mode_switch_pro2.h"
 #include "bonds.h"
 #include "config.h"
@@ -16,6 +16,7 @@
 #include "usb_tx.h"
 #include <Adafruit_TinyUSB.h>
 #include <Arduino.h>
+#include <math.h>
 #include <string.h>
 
 extern "C" {
@@ -75,6 +76,10 @@ static volatile uint8_t g_sw2FeatureMask = 0;
 static volatile bool g_sw2InputEnabled = false;
 static volatile uint8_t g_sw2Counter8 = 0;
 static volatile uint32_t g_sw2Counter32 = 0;
+static uint32_t g_sw2TimestampUs = 0;
+static uint16_t g_sw2SampleCounter = 0;
+static uint8_t g_sw2ImuReg0A = 0x76;
+static float g_sw2Quat[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
 static int8_t g_sw2LastRumbleBond = -1;
 static uint16_t g_sw2LastRumbleLeft = 0;
 static uint16_t g_sw2LastRumbleRight = 0;
@@ -315,6 +320,111 @@ static uint8_t sw2PowerInfo(uint8_t slot)
 	return (uint8_t)((level << 2) | chg);
 }
 
+static void sw2ImuAxes(uint8_t slot, int16_t *axOut, int16_t *ayOut,
+		       int16_t *azOut, int16_t *gxOut, int16_t *gyOut,
+		       int16_t *gzOut)
+{
+	int16_t ax = (int16_t)(g_in[slot].ax / 4);
+	int16_t ay = (int16_t)(g_in[slot].ay / 4);
+	int16_t az = (int16_t)(g_in[slot].az / 4);
+	int16_t gx = (int16_t)g_in[slot].gx;
+	int16_t gy = (int16_t)g_in[slot].gy;
+	int16_t gz = (int16_t)g_in[slot].gz;
+	if (!g_swGyroLegacy) {
+		gx = (int16_t)(((int32_t)gx * 9) / 10);
+		gy = (int16_t)(((int32_t)gy * 4) / 5);
+		gz = (int16_t)(((int32_t)gz * 9) / 10);
+	}
+	*axOut = ax;
+	*ayOut = ay;
+	*azOut = az;
+	*gxOut = gx;
+	*gyOut = gy;
+	*gzOut = gz;
+}
+
+// Report 0x09's 30-byte motion payload encodes 4 integrated 960 Hz gyro samples
+// as a projective unit quaternion (pivot index in m[4], three Q1.24 cyclic
+// ratios in m[5..15]) followed by Q16.16 body-frame accelerometer axes in
+// m[16..27] and temperature in m[28..29].
+static void sw2PackMotion09(uint8_t slot, uint8_t m[30])
+{
+	int16_t ax, ay, az, gx, gy, gz;
+	sw2ImuAxes(slot, &ax, &ay, &az, &gx, &gy, &gz);
+
+	const uint8_t nsamp = 4;
+	g_sw2SampleCounter = (uint16_t)((g_sw2SampleCounter + nsamp) & 0x0fffu);
+	m[0] = (uint8_t)(g_sw2SampleCounter & 0xffu);
+	m[1] = (uint8_t)((nsamp << 4) | ((g_sw2SampleCounter >> 8) & 0x0fu));
+	m[2] = 0x00;
+	m[3] = 0x0c;
+
+	// Half-angle step per LSB for 4 samples at 960 Hz and +-2000 dps full
+	// scale: 0.5 * (4 / 960) * ((2000 * pi / 180) / 32768).
+	const float step = 2.2193009e-6f;
+	float hx = (float)gx * step;
+	float hy = (float)gy * step;
+	float hz = (float)gz * step;
+	float q0 = g_sw2Quat[0], q1 = g_sw2Quat[1];
+	float q2 = g_sw2Quat[2], q3 = g_sw2Quat[3];
+	float n0 = q0 - q1 * hx - q2 * hy - q3 * hz;
+	float n1 = q1 + q0 * hx + q2 * hz - q3 * hy;
+	float n2 = q2 + q0 * hy - q1 * hz + q3 * hx;
+	float n3 = q3 + q0 * hz + q1 * hy - q2 * hx;
+	float norm = sqrtf(n0 * n0 + n1 * n1 + n2 * n2 + n3 * n3);
+	if (norm > 1e-6f) {
+		float inv = 1.0f / norm;
+		g_sw2Quat[0] = n0 * inv;
+		g_sw2Quat[1] = n1 * inv;
+		g_sw2Quat[2] = n2 * inv;
+		g_sw2Quat[3] = n3 * inv;
+	} else {
+		g_sw2Quat[0] = 1.0f;
+		g_sw2Quat[1] = 0.0f;
+		g_sw2Quat[2] = 0.0f;
+		g_sw2Quat[3] = 0.0f;
+	}
+
+	uint8_t idx = 0;
+	float maxAbs = fabsf(g_sw2Quat[0]);
+	for (uint8_t i = 1; i < 4; i++) {
+		float a = fabsf(g_sw2Quat[i]);
+		if (a > maxAbs) {
+			maxAbs = a;
+			idx = i;
+		}
+	}
+	m[4] = idx;
+	float denom = g_sw2Quat[idx];
+	uint32_t u[3];
+	for (uint8_t i = 0; i < 3; i++) {
+		float r = g_sw2Quat[(idx + 1u + i) & 3u] / denom;
+		int32_t g = (int32_t)(r * 16777216.0f);
+		if (g < -16777216)
+			g = -16777216;
+		else if (g > 16777215)
+			g = 16777215;
+		u[i] = (uint32_t)(g + 0x01000000);
+	}
+	uint32_t w0 = u[0] << 1;
+	uint32_t w1 = (u[1] & 0x03ffffffu) | ((u[2] & 1u) << 31);
+	uint32_t w2 = u[2] >> 1;
+	memcpy(m + 5, &w0, 4);
+	memcpy(m + 9, &w1, 4);
+	m[13] = (uint8_t)w2;
+	m[14] = (uint8_t)(w2 >> 8);
+	m[15] = (uint8_t)(w2 >> 16);
+
+	int32_t a0 = (int32_t)ax << 16;
+	int32_t a1 = (int32_t)ay << 16;
+	int32_t a2 = (int32_t)az << 16;
+	memcpy(m + 16, &a0, 4);
+	memcpy(m + 20, &a1, 4);
+	memcpy(m + 24, &a2, 4);
+	m[28] = 0x00;
+	m[29] = 0x00;
+}
+
 static void sw2Build09(uint8_t slot, uint8_t out[63])
 {
 	memset(out, 0, 63);
@@ -328,7 +438,10 @@ static void sw2Build09(uint8_t slot, uint8_t out[63])
 	sw2PackStick(out + 5, lx, ly);
 	sw2PackStick(out + 8, rx, ry);
 	out[0x0b] = (g_sw2Features & (1u << 5)) ? 0x38 : 0x30;
-	out[0x0e] = 0; // native 0x09 packed motion remains unknown
+	if (g_sw2Features & 0x04) {
+		out[0x0e] = 0x1e;
+		sw2PackMotion09(slot, out + 0x0f);
+	}
 }
 
 static inline void sw2Put16(uint8_t *p, int16_t v)
@@ -355,19 +468,10 @@ static void sw2Build05(uint8_t slot, uint8_t out[63])
 	out[0x29] = 0x01;
 
 	uint8_t *m = out + 0x2a;
-	uint32_t ts = micros();
-	memcpy(m, &ts, sizeof ts);
-	int16_t ax = (int16_t)(g_in[slot].ax / 4);
-	int16_t ay = (int16_t)(g_in[slot].ay / 4);
-	int16_t az = (int16_t)(g_in[slot].az / 4);
-	int16_t gx = (int16_t)g_in[slot].gx;
-	int16_t gy = (int16_t)g_in[slot].gy;
-	int16_t gz = (int16_t)g_in[slot].gz;
-	if (!g_swGyroLegacy) {
-		gx = (int16_t)(((int32_t)gx * 9) / 10);
-		gy = (int16_t)(((int32_t)gy * 4) / 5);
-		gz = (int16_t)(((int32_t)gz * 9) / 10);
-	}
+	g_sw2TimestampUs += 4000u;
+	memcpy(m, &g_sw2TimestampUs, sizeof g_sw2TimestampUs);
+	int16_t ax, ay, az, gx, gy, gz;
+	sw2ImuAxes(slot, &ax, &ay, &az, &gx, &gy, &gz);
 	// m[4..5] temperature stays zero; sensor axes begin at m[6].
 	sw2Put16(m + 6, ax);
 	sw2Put16(m + 8, ay);
@@ -397,8 +501,8 @@ static void sw2DataHeader(uint8_t *out, uint8_t cmd, uint8_t transport,
 	out[1] = 0x01;
 	out[2] = transport;
 	out[3] = sub;
-	out[4] = 0x10;
-	out[5] = 0x78;
+	out[4] = transport == 0x01 ? 0x10 : 0x00;
+	out[5] = transport == 0x01 ? 0x78 : 0xf8;
 	out[6] = 0x00;
 	out[7] = 0x00;
 }
@@ -431,9 +535,11 @@ static const uint8_t SW2_FACTORY_130C0[49] = {
 	0x2c, 0x08, 0x84, 0xd1, 0x65, 0x63, 0x2a, 0x26, 0x62,
 };
 
+// Bytes 0..11 are zero gyro biases; bytes 12..23 are resting accelerometer
+// gravity (0.0f, 0.0f, +9.80665f m/s^2).
 static const uint8_t SW2_FACTORY_13100[24] = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xe8, 0x1c, 0x41,
 };
 
 static const uint8_t SW2_FACTORY_13140[9] = {
@@ -446,9 +552,20 @@ static const uint8_t SW2_FLASH_175000[26] = {
 	0x09, 0x10, 0xfd, 0x16, 0x29, 0x8a, 0x06, 0x5f,
 };
 
+static uint8_t g_sw2UserCal[256];
+static bool g_sw2UserCalInit = false;
+
+static void sw2EnsureUserCal(void)
+{
+	if (!g_sw2UserCalInit) {
+		memset(g_sw2UserCal, 0xff, sizeof g_sw2UserCal);
+		g_sw2UserCalInit = true;
+	}
+}
+
 static void sw2OverlayFlash(uint32_t address, uint8_t *out, uint8_t len,
 			    uint32_t knownAddress, const uint8_t *known,
-			    uint8_t knownLen)
+			    uint16_t knownLen)
 {
 	uint32_t begin = address > knownAddress ? address : knownAddress;
 	uint32_t end = address + len;
@@ -463,15 +580,13 @@ static void sw2OverlayFlash(uint32_t address, uint8_t *out, uint8_t len,
 
 static void sw2FillFlashBlock(uint32_t address, uint8_t *block, uint8_t len)
 {
+	sw2EnsureUserCal();
 	// Uninitialised controller flash is 0xff; overlay captured Pro factory data.
 	memset(block, 0xff, len);
 	sw2OverlayFlash(address, block, len, 0x00013000, SW2_VENDOR_IDENTITY,
 			sizeof SW2_VENDOR_IDENTITY);
 	sw2OverlayFlash(address, block, len, 0x00013040, SW2_FACTORY_13040,
 			sizeof SW2_FACTORY_13040);
-	static const uint8_t factory13060[4] = { 0x4c, 0x09, 0x00, 0x00 };
-	sw2OverlayFlash(address, block, len, 0x00013060, factory13060,
-			sizeof factory13060);
 	sw2OverlayFlash(address, block, len, 0x00013080, SW2_FACTORY_13080,
 			sizeof SW2_FACTORY_13080);
 	sw2OverlayFlash(address, block, len, 0x000130c0, SW2_FACTORY_130C0,
@@ -482,6 +597,8 @@ static void sw2FillFlashBlock(uint32_t address, uint8_t *block, uint8_t len)
 			sizeof SW2_FACTORY_13140);
 	sw2OverlayFlash(address, block, len, 0x00175000, SW2_FLASH_175000,
 			sizeof SW2_FLASH_175000);
+	sw2OverlayFlash(address, block, len, 0x001fc000, g_sw2UserCal,
+			sizeof g_sw2UserCal);
 }
 
 static uint8_t sw2HandleFlashCommand(const uint8_t *cmd, uint8_t n,
@@ -490,6 +607,28 @@ static uint8_t sw2HandleFlashCommand(const uint8_t *cmd, uint8_t n,
 	uint8_t sub = cmd[3];
 	if (n < 16)
 		return sw2QueueDataHeader(0x02, cmd[2], sub, reply);
+
+	uint32_t address = (uint32_t)cmd[12] | ((uint32_t)cmd[13] << 8) |
+			   ((uint32_t)cmd[14] << 16) |
+			   ((uint32_t)cmd[15] << 24);
+	if (sub == 0x03) {
+		sw2EnsureUserCal();
+		if (address >= 0x001fc000 && address < 0x001fd000)
+			memset(g_sw2UserCal, 0xff, sizeof g_sw2UserCal);
+		return sw2QueueDataHeader(0x02, cmd[2], sub, reply);
+	}
+	if (sub == 0x02 || sub == 0x05) {
+		sw2EnsureUserCal();
+		uint8_t writeLen = sub == 0x02 ? 0x40 : cmd[8];
+		if (writeLen > n - 16)
+			writeLen = (uint8_t)(n - 16);
+		for (uint8_t i = 0; i < writeLen; i++) {
+			uint32_t a = address + i;
+			if (a >= 0x001fc000 && a < 0x001fc100)
+				g_sw2UserCal[a - 0x001fc000] = cmd[16 + i];
+		}
+		return sw2QueueDataHeader(0x02, cmd[2], sub, reply);
+	}
 
 	uint8_t requested;
 	if (sub == 0x01)
@@ -501,9 +640,6 @@ static uint8_t sw2HandleFlashCommand(const uint8_t *cmd, uint8_t n,
 
 	sw2DataHeader(reply, 0x02, cmd[2], sub);
 	uint8_t copied = requested > 80 ? 80 : requested;
-	uint32_t address = (uint32_t)cmd[12] | ((uint32_t)cmd[13] << 8) |
-			   ((uint32_t)cmd[14] << 16) |
-			   ((uint32_t)cmd[15] << 24);
 	reply[8] = copied;
 	reply[12] = cmd[12];
 	reply[13] = cmd[13];
@@ -665,12 +801,22 @@ static uint8_t sw2HandleFeatures(const uint8_t *cmd, uint8_t n, uint8_t *reply)
 		g_sw2FeatureMask = 0;
 		g_sw2Features = 0;
 	} else if (sub == 0x04) {
+		if ((flags & 0x04) && !(g_sw2Features & 0x04)) {
+			g_sw2SampleCounter = 0;
+			g_sw2Quat[0] = 1.0f;
+			g_sw2Quat[1] = 0.0f;
+			g_sw2Quat[2] = 0.0f;
+			g_sw2Quat[3] = 0.0f;
+		}
 		g_sw2Features |= flags & g_sw2FeatureMask;
 	} else if (sub == 0x05) {
 		g_sw2Features &= (uint8_t) ~(flags & g_sw2FeatureMask);
 	} else if (sub == 0x06) {
-		reply[12] = 0x02;
-		reply[17] = 0x50;
+		reply[12] = n >= 13 ? cmd[12] : 0x02;
+		if (n >= 18 && cmd[16] == 0x0a)
+			g_sw2ImuReg0A = cmd[17];
+		else if (n >= 17 && cmd[16] == 0x8a)
+			reply[17] = g_sw2ImuReg0A;
 		return 48;
 	}
 	return 12;
@@ -759,7 +905,7 @@ static void sw2BuildVendorReply(void)
 	case 0x11:
 		if (sub == 0x03) {
 			static const uint8_t imuCal[] = {
-				0x01, 0x20, 0x03, 0x00, 0x00, 0x0a, 0xe8, 0x1c,
+				0x01, 0xc0, 0x03, 0x00, 0x00, 0x0a, 0xe8, 0x1c,
 				0x3b, 0x79, 0x7d, 0x8b, 0x3a, 0x0a, 0xe8, 0x9c,
 				0x42, 0x58, 0xa0, 0x0b, 0x42, 0x0a, 0xe8, 0x9c,
 				0x41, 0x58, 0xa0, 0x0b, 0x41,
@@ -769,7 +915,7 @@ static void sw2BuildVendorReply(void)
 			replyLen = (uint8_t)(8 + sizeof imuCal);
 		} else if (sub == 0x01) {
 			sw2DataHeader(reply, id, seq, sub);
-			reply[8] = 0x01;
+			reply[8] = 0x03;
 			replyLen = 12;
 		}
 		break;
@@ -925,6 +1071,12 @@ static void sw2DriverReset(uint8_t rhport)
 	g_sw2ActiveReport = 0x09;
 	g_sw2Features = 0;
 	g_sw2FeatureMask = 0;
+	g_sw2SampleCounter = 0;
+	g_sw2ImuReg0A = 0x76;
+	g_sw2Quat[0] = 1.0f;
+	g_sw2Quat[1] = 0.0f;
+	g_sw2Quat[2] = 0.0f;
+	g_sw2Quat[3] = 0.0f;
 	g_sw2LastRumbleBond = -1;
 	g_sw2LastRumbleLeft = 0;
 	g_sw2LastRumbleRight = 0;
