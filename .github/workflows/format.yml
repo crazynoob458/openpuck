@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - newswitch2
   # PRs get the same gate -- without this the checks only ran after merge.
   pull_request:
 
