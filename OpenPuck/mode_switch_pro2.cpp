@@ -1258,9 +1258,9 @@ static bool sw2DriverXfer(uint8_t rhport, uint8_t ep, xfer_result_t result,
 			}
 
 			if (g_sw2VendorRxLen < sizeof g_sw2VendorCmd) {
-				uint16_t space = (uint16_t)(
-					sizeof g_sw2VendorCmd -
-					g_sw2VendorRxLen);
+				uint16_t space =
+					(uint16_t)(sizeof g_sw2VendorCmd -
+						   g_sw2VendorRxLen);
 				uint8_t copy = n > space ? (uint8_t)space : n;
 				memcpy(g_sw2VendorCmd + g_sw2VendorRxLen,
 				       g_sw2VendorOut, copy);

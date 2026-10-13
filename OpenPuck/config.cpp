@@ -38,7 +38,7 @@ TypeCfg g_type[ET_COUNT] = {
 	/* ET_SWITCH  */ { { 5, 6, 7, 8 }, 18, 1, 0, 0, 1 },
 	/* ET_DS4     */ { { 5, 6, 7, 8 }, 0, 0, 1, 0, 1 },
 	/* ET_DS5     */ { { 5, 6, 7, 8 }, 0, 0, 1, 0, 1 },
-	/* ET_SWITCH2 */ { { 5, 6, 7, 8 }, 18, 1, 0, 0, 1 },
+	/* ET_SWITCH2 */ { { 21, 22, 7, 8 }, 18, 1, 0, 0, 1 },
 };
 uint8_t g_etype = ET_NONE;
 
@@ -218,6 +218,7 @@ struct Cfg {
 	uint8_t switch2Hd;
 	uint8_t switch2PlainScale2;
 	uint8_t hdPadScale2Switch2;
+	uint8_t switch2GripDefaulted;
 }; // rsvd0 = ex-padSmooth, now the one-shot debug-CDC arm
 
 // Shortest cfg.bin we still accept: the layout as of CFG_MAGIC 0xCF, i.e. everything before the appended tail.
@@ -265,7 +266,8 @@ void saveCfg()
 		  (uint8_t)(g_typeRumbleScale[ET_SWITCH2] / 2),
 		  g_switch2Hd,
 		  (uint8_t)(g_switch2PlainScale / 2),
-		  (uint8_t)(g_hdPadScale2 / 2) };
+		  (uint8_t)(g_hdPadScale2 / 2),
+		  1 };
 	for (int i = 0; i < CFG_BASE_TYPES; i++) {
 		c.type[i] = g_type[i];
 		c.typeLimitKnee[i] = g_typeLimitKnee[i];
@@ -303,8 +305,16 @@ void loadCfg()
 			if (c.typeSwitch2.abSwap <= 1 &&
 			    c.typeSwitch2.padHaptics <= 1 &&
 			    c.typeSwitch2.rumble <= 1 &&
-			    c.typeSwitch2.ledBright <= 100)
+			    c.typeSwitch2.ledBright <= 100) {
 				g_type[ET_SWITCH2] = c.typeSwitch2;
+				if (c.switch2GripDefaulted != 1 &&
+				    g_type[ET_SWITCH2].back[0] == 5 &&
+				    g_type[ET_SWITCH2].back[1] == 6) {
+					g_type[ET_SWITCH2].back[0] = 21;
+					g_type[ET_SWITCH2].back[1] = 22;
+					consume = true;
+				}
+			}
 			g_persistMode = c.persistMode ? true : false;
 			// one-shot debug-CDC (Cfg.rsvd0): honor for THIS boot, then consume so the next boot reverts to normal.
 			g_debugCdcThisBoot = c.rsvd0 ? true : false;
