@@ -74,10 +74,10 @@ static inline void feedWatchdogIfRunning()
 static uint8_t g_usbCfgDesc[512];
 
 // Per-mode USB serial suffix (modes 1..MODE_MAX: X=xbox N=hori L=lizard P=swpro S=ps5 G=hidgyro Q=ps5game
-// D=ds4game 3=ps3 O=original-xbox J=dinput I=sinput).
+// D=ds4game 3=ps3 O=original-xbox J=dinput I=sinput 2=swpro2).
 // 'C' is reserved for the CDC mode, see puck_hid.cpp
-static const char MODE_SUFFIX[] = { 'X', 'N', 'L', 'P', 'S', 'G',
-				    'Q', 'D', '3', 'O', 'J', 'I' };
+static const char MODE_SUFFIX[] = { 'X', 'N', 'L', 'P', 'S', 'G', 'Q',
+				    'D', '3', 'O', 'J', 'I', '2' };
 // Fixed-interface flags captured at boot so usbReenumerate (dynamic mount, no reboot) replays them.
 static bool s_dynWantWebusb = false, s_dynWantWakeMouse = false;
 
@@ -204,7 +204,8 @@ void setup()
 	if (dynamic) {
 		// Dynamic mount: present only ACTIVELY-CONNECTED controllers; usbReenumerate re-attaches (no reboot)
 		// as the set changes. Emulated modes are never puck; clean-PS drops WebUSB; all PS modes drop the wake mouse.
-		s_dynWantWakeMouse = !psClean && !modeIsPS(g_usbMode);
+		s_dynWantWakeMouse = !psClean && !modeIsPS(g_usbMode) &&
+				     g_usbMode != MODE_SW_PRO2;
 		s_dynWantWebusb = !psClean;
 		USBDevice.detach();
 		delay(30);
@@ -259,8 +260,10 @@ void setup()
 
 		// Boot-mouse wake interface for clean (non-puck) modes, and for puck on the one-shot debug boot (CDC on,
 		// no endpoint room for wake mouse on a normal puck boot -- wake is registered above instead). Skipped for PS
-		// modes so the device stays a genuine PlayStation controller without an unexpected mouse interface.
-		if (!puckMode && !keepCdc && !psClean && !modeIsPS(g_usbMode))
+		// modes so the device stays a genuine PlayStation controller without an unexpected mouse interface, and for
+		// Switch 2 Pro so usb_web lands on bInterfaceNumber 1 as SDL3's FindBulkEndpoints requires.
+		if (!puckMode && !keepCdc && !psClean && !modeIsPS(g_usbMode) &&
+		    g_usbMode != MODE_SW_PRO2)
 			wakeHidBegin();
 
 		// WebUSB config panel -- every mode EXCEPT the PlayStation modes. Puck: registered above (IF 0) before wake +
@@ -295,7 +298,7 @@ void setup()
 		"HIDGYRO(ds4+motion)",	 "PS5(dualsense,game/clean)",
 		"DS4(ds4,game/clean)",	 "PS3(dualshock3/sixaxis)",
 		"XBOX-OG(controller s)", "DINPUT(joystick+motion)",
-		"SINPUT(sdl-native)"
+		"SINPUT(sdl-native)",	 "SWITCH2(pro2+gyro)"
 	};
 	Serial.printf("# copycat up: unit=%s board=%s, mode=%s\n", g_unit,
 		      g_board,

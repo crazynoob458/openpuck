@@ -58,7 +58,9 @@
 // SInput: the open SDL-native gamepad protocol (docs.handheldlegend.com/s/sinput). Sticks + analog triggers +
 // gyro/accel + BOTH trackpads + battery, all bound natively by SDL3 / Steam Input with no impersonation.
 #define MODE_SINPUT 12
-#define MODE_MAX 12
+// Nintendo Switch 2 Pro Controller (057E:2069) + Bulk vendor interface + gyro
+#define MODE_SW_PRO2 13
+#define MODE_MAX 13
 
 // The two "game" personalities drop the wake-mouse + WebUSB interfaces so the device is a genuine single-HID PS
 // controller (some PC games -- e.g. Fortnite/UE GameInput -- refuse PS classification when extra interfaces are
@@ -102,6 +104,7 @@ static inline uint8_t etypeForMode(uint8_t m)
 		return ET_XBOX;
 	case MODE_SW_HORI:
 	case MODE_SW_PRO:
+	case MODE_SW_PRO2:
 		return ET_SWITCH;
 	case MODE_HIDGYRO:
 	case MODE_DS4_GAME:

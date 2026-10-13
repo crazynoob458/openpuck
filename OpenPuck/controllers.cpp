@@ -5,6 +5,7 @@
 #include "mode_xinput.h"
 #include "mode_switch_hori.h"
 #include "mode_switch_pro.h"
+#include "mode_switch_pro2.h"
 #include "mode_ps5.h"
 #include "mode_hidgyro.h"
 #include "mode_ps3.h"
@@ -37,6 +38,8 @@ IController *controllerFor(uint8_t mode)
 		return &g_switchHori;
 	case MODE_SW_PRO:
 		return &g_switchPro;
+	case MODE_SW_PRO2:
+		return &g_switchPro2;
 	case MODE_PS5:
 		return &g_ps5Ctl;
 	case MODE_HIDGYRO:
