@@ -83,12 +83,17 @@ static float g_sw2Quat[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
 static int8_t g_sw2LastRumbleBond = -1;
 static uint16_t g_sw2LastRumbleLeft = 0;
 static uint16_t g_sw2LastRumbleRight = 0;
+static bool g_sw2RumbleActive = false;
+static unsigned long g_sw2SampleEndMs = 0;
 static volatile bool g_sw2VendorCommandPending = false;
 static volatile bool g_sw2VendorInFlight = false;
+static volatile bool g_sw2VendorOutRearmPending = false;
 static volatile uint8_t g_sw2VendorCommandLen = 0;
 static volatile uint8_t g_sw2VendorReplyLen = 0;
+static volatile uint8_t g_sw2VendorReplyOffset = 0;
 static uint8_t g_sw2VendorOut[64];
-static uint8_t g_sw2VendorReply[64];
+static uint8_t g_sw2VendorCmd[64];
+static uint8_t g_sw2VendorReply[96];
 static uint8_t g_sw2ControlReply[64];
 static const uint8_t SW2_VENDOR_IDENTITY[64] = {
 	0x01, 0x00, 'H',  'E',	'W',  '7',  '0',  '0',	'0',  '6',  '1',
@@ -787,6 +792,21 @@ static uint8_t sw2HandlePairing(const uint8_t *cmd, uint8_t n, uint8_t *reply)
 	return 9;
 }
 
+static void sw2StopRumble(void)
+{
+	if (!g_sw2RumbleActive && g_sw2LastRumbleBond < 0)
+		return;
+	int bond = g_sw2LastRumbleBond >= 0 ?
+			   g_sw2LastRumbleBond :
+			   (g_usbMountCount ? g_usbToBond[0] : -1);
+	g_sw2RumbleActive = false;
+	g_sw2LastRumbleBond = -1;
+	g_sw2LastRumbleLeft = 0;
+	g_sw2LastRumbleRight = 0;
+	if (bond >= 0 && bond < NSLOT)
+		hapticSteamRumble(0, 0, (uint8_t)bond);
+}
+
 static uint8_t sw2HandleFeatures(const uint8_t *cmd, uint8_t n, uint8_t *reply)
 {
 	uint8_t sub = cmd[3], flags = n >= 9 ? cmd[8] : 0;
@@ -800,6 +820,7 @@ static uint8_t sw2HandleFeatures(const uint8_t *cmd, uint8_t n, uint8_t *reply)
 	else if (sub == 0x03) {
 		g_sw2FeatureMask = 0;
 		g_sw2Features = 0;
+		sw2StopRumble();
 	} else if (sub == 0x04) {
 		if ((flags & 0x04) && !(g_sw2Features & 0x04)) {
 			g_sw2SampleCounter = 0;
@@ -811,6 +832,8 @@ static uint8_t sw2HandleFeatures(const uint8_t *cmd, uint8_t n, uint8_t *reply)
 		g_sw2Features |= flags & g_sw2FeatureMask;
 	} else if (sub == 0x05) {
 		g_sw2Features &= (uint8_t) ~(flags & g_sw2FeatureMask);
+		if (flags & 0x20)
+			sw2StopRumble();
 	} else if (sub == 0x06) {
 		reply[12] = n >= 13 ? cmd[12] : 0x02;
 		if (n >= 18 && cmd[16] == 0x0a)
@@ -824,20 +847,37 @@ static uint8_t sw2HandleFeatures(const uint8_t *cmd, uint8_t n, uint8_t *reply)
 
 static void sw2PlayVibrationSample(uint8_t sampleId)
 {
+	// Switch 2 sends a burst of 4-6 sampleId=0 commands on every rumble
+	// menu toggle; only enqueue RF stop packets when a sample or rumble is
+	// actually active.
+	if (sampleId == 0) {
+		if (g_sw2SampleEndMs &&
+		    (int32_t)(millis() - g_sw2SampleEndMs) < 0 &&
+		    g_usbMountCount) {
+			int bond = g_usbToBond[0];
+			if (bond >= 0 && bond < NSLOT) {
+				hapticAudioTone(0, -128, 160, 30,
+						(uint8_t)bond);
+				hapticAudioTone(1, -128, 160, 30,
+						(uint8_t)bond);
+			}
+		}
+		g_sw2SampleEndMs = 0;
+		sw2StopRumble();
+		return;
+	}
 	if (!g_usbMountCount || !g_rumble)
 		return;
 	int bond = g_usbToBond[0];
 	if (bond < 0 || bond >= NSLOT)
 		return;
-	if (sampleId == 0) {
-		hapticAudioTone(0, -128, 160, 30, (uint8_t)bond);
-		hapticAudioTone(1, -128, 160, 30, (uint8_t)bond);
-		return;
-	}
 	uint16_t hz = (sampleId == 1) ? 160 : 320;
 	uint16_t ms = (sampleId == 1 || sampleId == 2) ? 240 : 80;
 	hapticAudioTone(0, -9, hz, ms, (uint8_t)bond);
 	hapticAudioTone(1, -9, hz, ms, (uint8_t)bond);
+	g_sw2SampleEndMs = millis() + ms;
+	if (!g_sw2SampleEndMs)
+		g_sw2SampleEndMs = 1;
 }
 
 static void sw2BuildVendorReply(void)
@@ -850,12 +890,13 @@ static void sw2BuildVendorReply(void)
 	n = g_sw2VendorCommandLen;
 	if (n > sizeof cmd)
 		n = sizeof cmd;
-	memcpy(cmd, g_sw2VendorOut, n);
+	memcpy(cmd, g_sw2VendorCmd, n);
 	g_sw2VendorCommandPending = false;
 	__set_PRIMASK(pm);
 
 	memset(reply, 0, sizeof reply);
 	if (n < 8 || cmd[1] != 0x91) {
+		g_sw2VendorReplyOffset = 0;
 		g_sw2VendorReplyLen = 0;
 		return;
 	}
@@ -942,6 +983,7 @@ static void sw2BuildVendorReply(void)
 		break;
 	case 0x06:
 		if (sub == 0x02) {
+			g_sw2VendorReplyOffset = 0;
 			g_sw2VendorReplyLen = 0;
 			return;
 		}
@@ -977,12 +1019,10 @@ static void sw2BuildVendorReply(void)
 		break;
 	}
 
-	uint8_t first = replyLen > sizeof g_sw2VendorReply ?
-				sizeof g_sw2VendorReply :
-				replyLen;
-	memcpy(g_sw2VendorReply, reply, first);
-	if (replyLen > first)
-		memcpy(g_sw2VendorOut, reply + first, replyLen - first);
+	if (replyLen > sizeof g_sw2VendorReply)
+		replyLen = sizeof g_sw2VendorReply;
+	memcpy(g_sw2VendorReply, reply, replyLen);
+	g_sw2VendorReplyOffset = 0;
 	g_sw2VendorReplyLen = replyLen;
 }
 
@@ -991,16 +1031,38 @@ static void sw2Drain(void)
 	if (g_usbMode != MODE_SW_PRO2 || g_usbMountCount == 0)
 		return;
 
-	if (g_sw2VendorCommandPending && !g_sw2VendorInFlight) {
+	if (g_sw2VendorOutRearmPending && g_sw2VendorEpOut &&
+	    !usbd_edpt_busy(g_sw2Rhport, g_sw2VendorEpOut) &&
+	    usbd_edpt_claim(g_sw2Rhport, g_sw2VendorEpOut)) {
+		if (usbd_edpt_xfer(g_sw2Rhport, g_sw2VendorEpOut,
+				   g_sw2VendorOut, sizeof g_sw2VendorOut))
+			g_sw2VendorOutRearmPending = false;
+		else
+			usbd_edpt_release(g_sw2Rhport, g_sw2VendorEpOut);
+	}
+
+	if (g_sw2VendorCommandPending && !g_sw2VendorInFlight &&
+	    g_sw2VendorReplyLen == 0) {
 		sw2BuildVendorReply();
-		uint8_t n = g_sw2VendorReplyLen;
-		uint8_t first = n > sizeof g_sw2VendorReply ?
-					sizeof g_sw2VendorReply :
-					n;
-		if (first && g_sw2VendorEpIn &&
-		    usbd_edpt_xfer(g_sw2Rhport, g_sw2VendorEpIn,
-				   g_sw2VendorReply, first))
+		if (g_sw2VendorReplyLen == 0)
+			g_sw2VendorOutRearmPending = true;
+	}
+
+	if (!g_sw2VendorInFlight &&
+	    g_sw2VendorReplyOffset < g_sw2VendorReplyLen && g_sw2VendorEpIn &&
+	    !usbd_edpt_busy(g_sw2Rhport, g_sw2VendorEpIn) &&
+	    usbd_edpt_claim(g_sw2Rhport, g_sw2VendorEpIn)) {
+		uint8_t rem =
+			(uint8_t)(g_sw2VendorReplyLen - g_sw2VendorReplyOffset);
+		uint8_t chunk = rem > 64 ? 64 : rem;
+		uint8_t off = g_sw2VendorReplyOffset;
+		if (usbd_edpt_xfer(g_sw2Rhport, g_sw2VendorEpIn,
+				   g_sw2VendorReply + off, chunk)) {
+			g_sw2VendorReplyOffset = (uint8_t)(off + chunk);
 			g_sw2VendorInFlight = true;
+			return;
+		}
+		usbd_edpt_release(g_sw2Rhport, g_sw2VendorEpIn);
 	}
 
 	if (!g_sw2InputEnabled || !tud_hid_n_ready(0))
@@ -1067,6 +1129,9 @@ static void sw2DriverReset(uint8_t rhport)
 	g_sw2VendorEpOut = g_sw2VendorEpIn = 0;
 	g_sw2VendorCommandPending = false;
 	g_sw2VendorInFlight = false;
+	g_sw2VendorOutRearmPending = false;
+	g_sw2VendorReplyLen = 0;
+	g_sw2VendorReplyOffset = 0;
 	g_sw2InputEnabled = false;
 	g_sw2ActiveReport = 0x09;
 	g_sw2Features = 0;
@@ -1080,6 +1145,8 @@ static void sw2DriverReset(uint8_t rhport)
 	g_sw2LastRumbleBond = -1;
 	g_sw2LastRumbleLeft = 0;
 	g_sw2LastRumbleRight = 0;
+	g_sw2RumbleActive = false;
+	g_sw2SampleEndMs = 0;
 }
 
 static uint16_t sw2DriverOpen(uint8_t rhport, tusb_desc_interface_t const *itf,
@@ -1150,26 +1217,41 @@ static bool sw2DriverXfer(uint8_t rhport, uint8_t ep, xfer_result_t result,
 			  uint32_t transferred)
 {
 	if (ep == g_sw2VendorEpOut) {
-		if (result == XFER_RESULT_SUCCESS) {
-			g_sw2VendorCommandLen =
+		if (result == XFER_RESULT_SUCCESS && transferred > 0) {
+			uint8_t n =
 				(uint8_t)(transferred > 64 ? 64 : transferred);
+			memcpy(g_sw2VendorCmd, g_sw2VendorOut, n);
+			g_sw2VendorCommandLen = n;
 			g_sw2VendorCommandPending = true;
+			return true;
 		}
-		// Intentionally do not re-arm OUT here. The shared response buffer
-		// belongs to the matching IN transfer until that transfer completes.
+		if (!usbd_edpt_xfer(rhport, g_sw2VendorEpOut, g_sw2VendorOut,
+				    sizeof g_sw2VendorOut))
+			g_sw2VendorOutRearmPending = true;
 		return true;
 	}
 	if (ep == g_sw2VendorEpIn) {
-		if (result == XFER_RESULT_SUCCESS && g_sw2VendorReplyLen > 64) {
-			uint8_t tail = g_sw2VendorReplyLen - 64;
-			g_sw2VendorReplyLen = tail;
-			return usbd_edpt_xfer(rhport, g_sw2VendorEpIn,
-					      g_sw2VendorOut, tail);
+		if (result == XFER_RESULT_SUCCESS &&
+		    g_sw2VendorReplyOffset < g_sw2VendorReplyLen) {
+			uint8_t rem = (uint8_t)(g_sw2VendorReplyLen -
+						g_sw2VendorReplyOffset);
+			uint8_t chunk = rem > 64 ? 64 : rem;
+			uint8_t off = g_sw2VendorReplyOffset;
+			if (usbd_edpt_xfer(rhport, g_sw2VendorEpIn,
+					   g_sw2VendorReply + off, chunk)) {
+				g_sw2VendorReplyOffset = (uint8_t)(off + chunk);
+				return true;
+			}
+			g_sw2VendorInFlight = false;
+			return true;
 		}
 		g_sw2VendorReplyLen = 0;
+		g_sw2VendorReplyOffset = 0;
 		g_sw2VendorInFlight = false;
-		return usbd_edpt_xfer(rhport, g_sw2VendorEpOut, g_sw2VendorOut,
-				      sizeof g_sw2VendorOut);
+		if (!usbd_edpt_xfer(rhport, g_sw2VendorEpOut, g_sw2VendorOut,
+				    sizeof g_sw2VendorOut))
+			g_sw2VendorOutRearmPending = true;
+		return true;
 	}
 	return hidd_xfer_cb(rhport, ep, result, transferred);
 }
@@ -1232,10 +1314,17 @@ extern "C" uint16_t __wrap_tud_hid_get_report_cb(uint8_t itf, uint8_t reportId,
 
 // Switch 2 Pro output report 0x02 carries two 16-byte LRA packets after the
 // report ID: left then right. Each packet starts with a 0x50|sequence byte and
-// contains three absolute 5-byte HD-rumble frames.
+// contains three absolute 5-byte HD-rumble frames. Sub-1% fade-out codes
+// (< 576) are gated to silence so fade-out dithering does not keep the RF
+// relay active after a rumble pulse ends.
 static void sw2RumbleMotorBands(const uint8_t packet[16], uint16_t *lowOut,
 				uint16_t *highOut)
 {
+	if ((packet[0] & 0xf0) != 0x50) {
+		*lowOut = 0;
+		*highOut = 0;
+		return;
+	}
 	uint16_t lowPeak = 0, highPeak = 0;
 	for (uint8_t i = 0; i < 3; i++) {
 		const uint8_t *frame = packet + 1 + 5 * i;
@@ -1244,9 +1333,9 @@ static void sw2RumbleMotorBands(const uint8_t packet[16], uint16_t *lowOut,
 				   ((uint16_t)(frame[2] & 0x0f) << 12));
 		uint16_t lowAmp = (uint16_t)((frame[3] & 0xc0) |
 					     ((uint16_t)frame[4] << 8));
-		if (highAmp > highPeak)
+		if (highAmp >= 576 && highAmp > highPeak)
 			highPeak = highAmp;
-		if (lowAmp > lowPeak)
+		if (lowAmp >= 576 && lowAmp > lowPeak)
 			lowPeak = lowAmp;
 	}
 	*lowOut = lowPeak;
@@ -1264,7 +1353,24 @@ static void sw2Rumble(const uint8_t *payload, uint16_t size)
 	uint16_t leftLow = 0, leftHigh = 0, rightLow = 0, rightHigh = 0;
 	sw2RumbleMotorBands(payload, &leftLow, &leftHigh);
 	sw2RumbleMotorBands(payload + 16, &rightLow, &rightHigh);
-	if (g_switchHd) {
+	if (!leftLow && !leftHigh && !rightLow && !rightHigh) {
+		if (!g_sw2RumbleActive && g_sw2LastRumbleBond < 0)
+			return;
+		g_sw2RumbleActive = false;
+		if (g_switch2Hd) {
+			g_sw2LastRumbleBond = -1;
+			hapticSwitchHd((uint8_t)bond, 0, 0, 0, 0);
+			return;
+		}
+		if (hapticSteamRumble(0, 0, (uint8_t)bond)) {
+			g_sw2LastRumbleBond = -1;
+			g_sw2LastRumbleLeft = 0;
+			g_sw2LastRumbleRight = 0;
+		}
+		return;
+	}
+	g_sw2RumbleActive = true;
+	if (g_switch2Hd) {
 		g_sw2LastRumbleBond = -1;
 		hapticSwitchHd((uint8_t)bond, leftLow, leftHigh, rightLow,
 			       rightHigh);

@@ -56,6 +56,7 @@ extern uint16_t g_rumbleScale; // percent, RUMBLE_SCALE_MIN..RUMBLE_SCALE_MAX
 extern uint8_t g_rumbleStyle; // RUMBLE_STYLE_*
 // Switch Pro HD rumble: trackpad tone strength, percent (0..500, 100 default). The grips follow g_rumbleScale.
 extern uint16_t g_hdPadScale;
+extern uint16_t g_hdPadScale2;
 // Test buzz for the panel/console: a fixed mid-scale amplitude pushed through the SAME shaping path host
 // rumble takes, so what you feel is what a game at that amplitude would feel like. Auto-stops in hapticTask()
 // -- the controller's haptic LATCHES, so the stop is not optional.

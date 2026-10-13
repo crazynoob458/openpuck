@@ -94,7 +94,8 @@ static inline bool modeValid(uint8_t m)
 #define ET_SWITCH 1
 #define ET_DS4 2
 #define ET_DS5 3
-#define ET_COUNT 4
+#define ET_SWITCH2 4
+#define ET_COUNT 5
 #define ET_NONE 0xFF
 static inline uint8_t etypeForMode(uint8_t m)
 {
@@ -105,8 +106,9 @@ static inline uint8_t etypeForMode(uint8_t m)
 		return ET_XBOX;
 	case MODE_SW_HORI:
 	case MODE_SW_PRO:
-	case MODE_SW_PRO2:
 		return ET_SWITCH;
+	case MODE_SW_PRO2:
+		return ET_SWITCH2;
 	case MODE_HIDGYRO:
 	case MODE_DS4_GAME:
 	case MODE_PS3: // DS3 shares the PlayStation face layout / button config
@@ -181,6 +183,7 @@ extern const uint16_t g_typeRumbleScaleDefault[ET_COUNT];
 // The Switch's strength with HD rumble off. Plain motor rumble needs the 200% the other types start with, where
 // the HD tones want 100%, so the two are kept apart: g_rumbleScale is whichever applies to the active type.
 extern uint16_t g_switchPlainScale;
+extern uint16_t g_switch2PlainScale;
 void rumbleStoreActive();
 // A type's grip strength as the panel edits it: the Switch's is whichever of its two applies to the HD rumble setting
 uint16_t rumbleScaleOf(uint8_t et);
@@ -216,6 +219,11 @@ extern uint8_t g_audioHaptics;
 // 1 = Switch Pro mode renders the console's HD rumble (default), 0 = its rumble plays as plain motor rumble, shaped by
 // the host-rumble style and strength like every other mode
 extern uint8_t g_switchHd;
+extern uint8_t g_switch2Hd;
+static inline bool activeSwitchHd(void)
+{
+	return (g_usbMode == MODE_SW_PRO2 ? g_switch2Hd : g_switchHd) != 0;
+}
 // Audio-driven haptic gain: 0 = auto (default, see ps5AudioTask), else a fixed 10-500%
 extern uint16_t g_audioHapticGain;
 // How audio-driven haptics drive the controller (see ps5AudioTask)
@@ -238,7 +246,7 @@ extern uint8_t g_typeHapticStyle[ET_COUNT];
 // the types that have a grip limiter and a haptic style
 static inline bool hapticTypeHasStyle(uint8_t et)
 {
-	return et == ET_SWITCH || et == ET_DS5;
+	return et == ET_SWITCH || et == ET_SWITCH2 || et == ET_DS5;
 }
 // LED brightness for the active emulated type (0 = no override, 1-100 = brightness %)
 extern uint8_t g_ledBright;
