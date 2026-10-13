@@ -488,6 +488,7 @@ function updateStabUI(){
 }
 setInterval(updateStabUI, 500);
 const $ = s=>document.querySelector(s);
+  $('#mainTabs .slot-tab[data-tab="tabUpdate"]').classList.toggle("beta-gated", !BETA_UI);
 // Debug UI gate: developer/diagnostic controls (stability test, clear-stuck-buzz, land-all-0x87) and the
 // forensic cards (Hang log, Loop-state trail, Flight recorder) only show with ?debug=true in the URL.
 // Everything still RUNS regardless (the trail keeps recording to localStorage, stability auto-resume works)
@@ -495,7 +496,7 @@ const $ = s=>document.querySelector(s);
 const DEBUG_UI = new URLSearchParams(location.search).get("debug")==="true";
 if(!DEBUG_UI) for(const el of document.querySelectorAll(".debugonly")) el.style.display="none";
 // Firmware-update tab gate: beta enables tested-but-not-yet-default surfaces.
-const BETA_UI = new URLSearchParams(location.search).get("beta")==="false";
+const BETA_UI = new URLSearchParams(location.search).get("beta")==="true";
 $("#betaBtn").textContent = BETA_UI ? "Beta on" : "Beta";
 $("#betaBtn").classList.toggle("active", BETA_UI);
 $("#betaBtn").title = BETA_UI
