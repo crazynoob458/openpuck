@@ -495,7 +495,7 @@ const $ = s=>document.querySelector(s);
 const DEBUG_UI = new URLSearchParams(location.search).get("debug")==="true";
 if(!DEBUG_UI) for(const el of document.querySelectorAll(".debugonly")) el.style.display="none";
 // Firmware-update tab gate: beta enables tested-but-not-yet-default surfaces.
-const BETA_UI = new URLSearchParams(location.search).get("beta")==="false";
+const BETA_UI = true;
 $("#betaBtn").textContent = BETA_UI ? "Please dont click this" : "Beta";
 $("#betaBtn").classList.toggle("active", BETA_UI);
 $("#betaBtn").title = BETA_UI
