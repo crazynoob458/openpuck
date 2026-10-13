@@ -136,7 +136,7 @@
   <span id="updAvail" class="pill hide" title="A newer OpenPuck (fork) release is available — click to open the Firmware update tab">…</span>
   <span class="spacer"></span>
   <button id="infoButton" title="WTF is this">WTF is this fork?</button>
-  <!-- <button id="betaBtn" class="beta" title="Show beta features warning and enable beta UI">Beta</button> -->
+  <button id="betaBtn" class="beta" title="Show beta features warning and enable beta UI">Why</button>
   <button id="debugCdc" title="Reboot ONCE with the CDC serial console enabled (WebUSB goes away for that boot); auto-reverts on the next boot">Debug CDC</button>
   <button id="dfuSerial" title="Reboot into serial DFU (adafruit-nrfutil), then replug">Serial DFU</button>
   <button id="dfuUf2" title="Reboot into the UF2 mass-storage bootloader; drop a .uf2 on the drive">UF2 DFU</button>
@@ -497,7 +497,7 @@ const DEBUG_UI = new URLSearchParams(location.search).get("debug")==="true";
 if(!DEBUG_UI) for(const el of document.querySelectorAll(".debugonly")) el.style.display="none";
 // Firmware-update tab gate: beta enables tested-but-not-yet-default surfaces.
 const BETA_UI = new URLSearchParams(location.search).get("beta")==="true";
-$("#betaBtn").textContent = BETA_UI ? "Beta on" : "Beta";
+$("#betaBtn").textContent = BETA_UI ? "Please dont click this" : "Beta";
 $("#betaBtn").classList.toggle("active", BETA_UI);
 $("#betaBtn").title = BETA_UI
   ? "Show beta-disable confirmation and return to the standard UI"
@@ -537,10 +537,10 @@ $("#betaBtn").onclick=async()=>{
   const u=new URL(location.href);
   if(BETA_UI){
     const ok=await betaPopup({
-      title:"Disable beta mode?",
-      body:["Beta-only tabs and controls will be gated again after the page reloads.",
-        "Let any firmware or config operation already in progress finish before leaving beta mode."],
-      okText:"Disable beta"
+      title:"ok why did you click this when i tild you not to",
+      body:["proceeding will make you lose features in the web configurator",
+        "is it really worth it?"],
+      okText:"yes because i FUCKING hate myself"
     });
     if(!ok) return;
     u.searchParams.delete("beta");
@@ -549,10 +549,10 @@ $("#betaBtn").onclick=async()=>{
   }
   const ok=await betaPopup({
     title:"Enable beta mode?",
-    body:["Beta features are still being tested.",
-      "They may not work correctly, can disconnect the panel or puck, and may write invalid or difficult-to-recover configs.",
-      "Export a backup first if the puck is already paired and configured."],
-    okText:"Enable beta"
+    body:["ok good",
+      "keep going because you will regain the features you were meant to have",
+      "(why did you disable it?)"],
+    okText:"yes please continue"
   });
   if(!ok) return;
   u.searchParams.set("beta","true");
