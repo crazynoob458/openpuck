@@ -3814,8 +3814,8 @@ uint8_t rfConnTx(uint8_t ch, uint8_t s1, const uint8_t *payload, uint8_t plen,
 						}
 						// 0x44 [channel][event]: PCM stream events (PROTOCOL.md section 9.1)
 						if (rep[0] == 0x44 && tlen >= 3)
-							g_pcmDiag.events[rep[2] &
-									 15]++;
+							pcmDiagEvent(g_curSlot,
+								     rep[2]);
 						if (g_active)
 							g_active->onAuxReport(
 								g_curSlot,
@@ -4143,6 +4143,8 @@ static void rfConnStep()
 				rx = rfConnTx(ch, s1, p, 1);
 		}
 		lastPollReplied[k] = (rx > 0);
+		if (!lastPollReplied[k] && relayPending())
+			g_pcmDiag.flushSkip++;
 		if (rx)
 			g_chF1[0]++;
 		g_stPoll[k]++; // one true poll cycle for this slot

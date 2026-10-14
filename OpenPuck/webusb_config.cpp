@@ -597,20 +597,21 @@ static bool webusbSendRfStatus()
 }
 
 // 0x35: grip PCM stream counters since boot (g_pcmDiag), written from the usbd task like the blob:
-//   [0xB1][134][ver=1][made sent acked requeued lost evicted: u32 LE][0x44 events 0..15: u16 LE]
+//   [0xB1][198][ver=1][made sent acked requeued lost evicted: u32 LE][0x44 events 0..15: u16 LE]
 //   [polls/s: u16 LE][relays/s: u16 LE][Switch HD wave rate, kHz: 4][reply delay buckets 0..15: u16 LE]
 //   [corrupt replies: u16 LE][outcome[attempt 0..2][reply 0..4]: u16 LE, see PcmDiag]
 //   [audio packets u32][audio alt u8][DualSense stream slots u8][left haptic level u16]
+//   [queue delay buckets 0..7: u16][made-gap buckets 0..7: u16][ran dry: end, mid-stream, at start: u16]
 static void webusbSendPcmDiag()
 {
-	static uint8_t f[2 + 134];
+	static uint8_t f[2 + 198];
 	uint8_t *p = f + 3;
 	auto put = [&](uint32_t v, uint8_t n) {
 		for (uint8_t i = 0; i < n; i++)
 			*p++ = (uint8_t)(v >> (8 * i));
 	};
 	f[0] = 0xB1;
-	f[1] = 134;
+	f[1] = 198;
 	f[2] = 1;
 	const PcmDiag d = g_pcmDiag;
 	const uint32_t c[6] = { d.made,	    d.sent, d.acked,
@@ -632,6 +633,20 @@ static void webusbSendPcmDiag()
 	put(d.audioAlt, 1);
 	put(d.waveMask, 1);
 	put(d.audioEnvL, 2);
+	for (uint8_t i = 0; i < 8; i++)
+		put(d.queueDelay[i], 2);
+	for (uint8_t i = 0; i < 8; i++)
+		put(d.madeGap[i], 2);
+	put(d.dryEnd, 2);
+	put(d.dryMid, 2);
+	put(d.dryStart, 2);
+	put((uint32_t)d.lateMin, 4);
+	put((uint32_t)d.lateMax, 4);
+	put((uint32_t)d.lateLast, 4);
+	put((uint32_t)d.lateAtDry, 4);
+	put(d.otherRelays, 4);
+	put(d.flushSkip, 4);
+	put(g_connPoll, 2);
 	if (tud_vendor_write_available() >= sizeof f) {
 		usb_web.write(f, sizeof f);
 		usb_web.flush();

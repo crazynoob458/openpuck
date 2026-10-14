@@ -108,6 +108,8 @@ struct RelayMsg {
 	bool expectReply;
 	// later poll cycles this PCM frame was retried on after going unanswered
 	uint8_t tries;
+	// micros() at enqueue (PcmDiag queue delay)
+	uint32_t enqUs;
 };
 // deep enough to hold a full Steam settings/LED transaction burst without loss
 #define RELAY_QLEN 32
@@ -135,6 +137,54 @@ static inline bool relayIsPcm(const RelayMsg &m)
 {
 	return m.isHaptic && m.rid == 0x88;
 }
+static uint8_t pcmDiagBucket(uint32_t us)
+{
+	static const uint8_t edgeMs[7] = { 2, 4, 8, 12, 16, 24, 32 };
+	uint32_t ms = us / 1000u;
+	uint8_t b = 0;
+	while (b < 7 && ms >= edgeMs[b])
+		b++;
+	return b;
+}
+static unsigned long g_pcmStartMs[NSLOT], g_pcmMadeMs[NSLOT];
+static uint32_t g_pcmMadeUs[NSLOT];
+static uint32_t g_pcmSendT0[NSLOT], g_pcmSendSamples[NSLOT];
+
+static void pcmDiagFirstSend(int slot, uint8_t n)
+{
+	uint32_t now = micros();
+	if (!g_pcmSendT0[slot]) {
+		g_pcmSendT0[slot] = now | 1;
+		g_pcmSendSamples[slot] = 0;
+		g_pcmDiag.lateMin = g_pcmDiag.lateMax = 0;
+	}
+	int32_t late =
+		(int32_t)(now - g_pcmSendT0[slot]) -
+		(int32_t)(g_pcmSendSamples[slot] * (1000000u / PCM_RATE_HZ));
+	g_pcmSendSamples[slot] += n;
+	g_pcmDiag.lateLast = late;
+	if (late < g_pcmDiag.lateMin)
+		g_pcmDiag.lateMin = late;
+	if (late > g_pcmDiag.lateMax)
+		g_pcmDiag.lateMax = late;
+}
+
+void pcmDiagEvent(int slot, uint8_t event)
+{
+	g_pcmDiag.events[event & 15]++;
+	if (event != 0x02 || slot < 0 || slot >= NSLOT)
+		return;
+	unsigned long now = millis();
+	if (now - g_pcmMadeMs[slot] >= 25u) {
+		g_pcmDiag.dryEnd++;
+		return;
+	}
+	g_pcmDiag.dryMid++;
+	g_pcmDiag.lateAtDry = g_pcmDiag.lateLast - g_pcmDiag.lateMin;
+	if (now - g_pcmStartMs[slot] < 500u)
+		g_pcmDiag.dryStart++;
+}
+
 static void pcmDiagReply(uint8_t attempt, uint8_t rxlen)
 {
 	uint8_t o = !g_rfReplyUs || !g_rfReplyCrcOk ?
@@ -192,6 +242,7 @@ bool relayEnqueue(uint8_t rid, const uint8_t *payload, uint8_t plen,
 		g_rq[s][h].expectReply = expectReply;
 		g_rq[s][h].isHaptic = isHaptic;
 		g_rq[s][h].tries = 0;
+		g_rq[s][h].enqUs = micros();
 		if (plen)
 			memcpy(g_rq[s][h].data, payload, plen);
 		g_rqHead[s] = nx;
@@ -1075,6 +1126,9 @@ void hapticPcmStart(uint8_t slot)
 		return;
 	static const uint8_t p[3] = { 2, 2, 9 };
 	relayEnqueue(0x86, p, sizeof p, true, slot);
+	g_pcmStartMs[slot] = millis();
+	g_pcmMadeUs[slot] = 0;
+	g_pcmSendT0[slot] = 0;
 }
 
 bool hapticPcmSend(uint8_t slot, const uint8_t *left, const uint8_t *right,
@@ -1087,6 +1141,11 @@ bool hapticPcmSend(uint8_t slot, const uint8_t *left, const uint8_t *right,
 	memcpy(p + 1, left, PCM_SAMPLES);
 	memcpy(p + 1 + PCM_SAMPLES, right, PCM_SAMPLES);
 	g_pcmDiag.made++;
+	uint32_t nowUs = micros();
+	if (g_pcmMadeUs[slot])
+		g_pcmDiag.madeGap[pcmDiagBucket(nowUs - g_pcmMadeUs[slot])]++;
+	g_pcmMadeUs[slot] = nowUs | 1;
+	g_pcmMadeMs[slot] = millis();
 	return relayEnqueue(0x88, p, sizeof p, true, slot);
 }
 
@@ -1233,6 +1292,13 @@ bool rfConnFlushRelay(uint8_t ch, uint8_t s1, bool *requeued)
 			if (relayIsPcm(m)) {
 				g_pcmDiag.sent++;
 				pcmDiagReply(m.tries ? 2 : 0, rx);
+				if (!m.tries) {
+					g_pcmDiag.queueDelay[pcmDiagBucket(
+						micros() - m.enqUs)]++;
+					pcmDiagFirstSend(cur, m.data[0]);
+				}
+			} else if (g_pcmMadeUs[cur]) {
+				g_pcmDiag.otherRelays++;
 			}
 			// The controller answers a PCM frame with an empty ACK within ~200 us: no input to harvest, so
 			// rfConnTx returns 0, but the frame landed. Resending it then plays it twice.

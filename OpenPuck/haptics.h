@@ -272,8 +272,23 @@ struct PcmDiag {
 	uint32_t audioPkts;
 	uint8_t audioAlt, waveMask;
 	uint16_t audioEnvL;
+	// 0x88 timing in ms buckets 0-2, 2-4, 4-8, 8-12, 12-16, 16-24, 24-32, 32+: queueDelay = enqueue to first send,
+	// madeGap = between frames made for one slot within a stream
+	uint16_t queueDelay[8], madeGap[8];
+	// "ran dry" events: after the last frame (end of stream), with frames still being made (mid-stream), and the
+	// mid-stream ones within 500 ms of the stream start
+	uint16_t dryEnd, dryMid, dryStart;
+	// Send timing of the current stream: each frame's first send against a steady sample clock from the first
+	// one, in us (late = sent later than the clock says). The span max - min is the jitter the controller's
+	// buffer has to absorb; lateAtDry is late - min at the last mid-stream "ran dry".
+	int32_t lateMin, lateMax, lateLast, lateAtDry;
+	// relay entries other than 0x88 sent, and poll cycles that skipped the relay because the last poll got no
+	// reply, while a frame waited
+	uint32_t otherRelays, flushSkip;
 };
 extern PcmDiag g_pcmDiag;
+// count a controller 0x44 stream event, classing a "ran dry" by where in the stream it landed
+void pcmDiagEvent(int slot, uint8_t event);
 
 // boot reset: clear relay/active flags, arm the reconnect block
 void hapticInit();
