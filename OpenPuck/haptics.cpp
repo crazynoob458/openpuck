@@ -963,12 +963,15 @@ static void hdStop(uint8_t slot)
 		  millis() - g_hdPcmState[slot].activeMs < HD_PCM_TAIL_MS);
 }
 
-// Pan test (op 0x36): a tone panned with equal power, so it should feel equally strong wherever it is. Feeds
-// the HD path like a host would, so it needs Switch Pro mode with HD rumble; elsewhere it does nothing.
+// Pan test (op 0x36): a tone panned with equal power, so it should feel equally strong wherever it is. In Switch
+// Pro HD mode it feeds the HD path like a host would, so it plays in the Switch's haptic style. Elsewhere it runs
+// the wave generator itself and streams PCM to the grips, which every controller plays whatever the mode. A slot
+// already streaming DualSense audio is skipped: two writers on one stream garble both.
 #define HD_PAN_TEST_MS 4000u
 #define HD_PAN_PERIOD_MS 2000u
 static unsigned long g_hdPanStart;
 static bool g_hdPanOn;
+static uint8_t g_hdPanRaw;
 
 void hapticTestHdPan()
 {
@@ -980,18 +983,42 @@ static void hdPanTestTask()
 {
 	if (!g_hdPanOn)
 		return;
-	unsigned long t = millis() - g_hdPanStart;
-	bool run = t < HD_PAN_TEST_MS && g_usbMode == MODE_SW_PRO && g_switchHd;
+	unsigned long now = millis(), t = now - g_hdPanStart;
+	bool hd = g_usbMode == MODE_SW_PRO && g_switchHd;
+	bool run = t < HD_PAN_TEST_MS;
 	// starts on the left, right at half a period, back left at a whole one
 	float pos = 0.5f - 0.5f * cosf(6.2831853f * t / HD_PAN_PERIOD_MS);
 	uint16_t l =
 		run ? (uint16_t)(RUMBLE_TEST_AMP * cosf(pos * 1.5707963f)) : 0;
 	uint16_t r =
 		run ? (uint16_t)(RUMBLE_TEST_AMP * sinf(pos * 1.5707963f)) : 0;
-	for (uint8_t s = 0; s < NSLOT; s++)
-		if (hapticLinkUp(s))
-			hapticSwitchHd(s, l, l, r, r);
-	if (!run)
+	if (hd) {
+		for (uint8_t s = 0; s < NSLOT; s++)
+			if (hapticLinkUp(s))
+				hapticSwitchHd(s, l, l, r, r);
+		if (!run)
+			g_hdPanOn = false;
+		return;
+	}
+	for (uint8_t s = 0; run && s < NSLOT; s++)
+		if (hapticLinkUp(s) && !(ps5WaveMask() & (1u << s)))
+			g_hdPanRaw |= (uint8_t)(1u << s);
+	const uint16_t bands[4] = { l, l, r, r };
+	static const uint16_t hz[4] = { 160, 320, 160, 320 };
+	// after the pan, the stream plays silence through its hang time and is left to run dry: a stop sent while
+	// the grips still play clicks
+	bool hang = t < HD_PAN_TEST_MS + HD_PCM_HANG_MS;
+	for (uint8_t s = 0; s < NSLOT; s++) {
+		if (!(g_hdPanRaw & (1u << s)))
+			continue;
+		if (hang) {
+			hdPcmRun(s, bands, hz, now);
+			continue;
+		}
+		hdPcmStop(s, false);
+		g_hdPanRaw &= (uint8_t) ~(1u << s);
+	}
+	if (!hang)
 		g_hdPanOn = false;
 }
 
@@ -1003,6 +1030,9 @@ static void hapticHdTask()
 	hdPanTestTask();
 	unsigned long now = millis();
 	for (uint8_t slot = 0; slot < NSLOT; slot++) {
+		// the pan test is streaming this slot's grips outside Switch Pro HD mode
+		if (g_hdPanRaw & (1u << slot))
+			continue;
 		uint32_t pm = __get_PRIMASK();
 		__disable_irq();
 		HdRumbleState snapshot = g_hdRumble[slot];

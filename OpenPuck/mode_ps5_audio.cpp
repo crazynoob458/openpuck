@@ -547,6 +547,11 @@ static void toneUpdate(ToneSide *t, uint8_t side, uint16_t env, uint16_t ref,
 // its slot leaves the stream and rejoins with a fresh format.
 #define WAVE_HANG_MS 300u
 
+uint8_t ps5WaveMask()
+{
+	return s_waveMask;
+}
+
 static void waveUpdate(bool active, float waveScale, uint32_t now)
 {
 	static bool s_on = false;

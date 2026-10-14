@@ -52,6 +52,7 @@ bool relayEnqueue(uint8_t rid,const uint8_t *p,uint8_t n,bool hap,uint8_t slot){
 #define PCM_RATE_HZ 4000u
 #define RUMBLE_TEST_AMP 0x8000u
 uint32_t micros(){return now*1000u;}
+uint8_t ps5WaveMask(){return 0;}
 void hapticPcmStart(uint8_t slot){if(keepPcm)messages.push_back({0x86,slot,{2,2,9}});}
 ''' + h[h.index('static inline uint8_t hapticPcmFrameLen'):h.index('// G.711')] + '''bool hapticPcmSend(uint8_t slot,const uint8_t *l,const uint8_t *r,uint8_t n){assert(n && n<=31);std::vector<uint8_t> f(1,n);f.insert(f.end(),l,l+31);f.insert(f.end(),r,r+31);if(keepPcm)messages.push_back({0x88,slot,f});return true;}
 uint8_t hapticUlaw(float x){return x>0.001f?1:(x<-0.001f?2:0);}
