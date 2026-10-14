@@ -327,9 +327,11 @@
         <div id="hapticPcmBlock" class="hide">
           <p class="note">Switch Pro mode plays the console's HD rumble. The high band of each side plays as a tone on that side's trackpad (at the HD trackpad strength); the grips follow the Switch tab's haptics style, at the strength above. The Switch tab's HD Rumble toggle turns all of this off: the console's rumble then plays as plain motor rumble, shaped by the Style and Strength above. The grip limiter, set per type in the Switch and DS5 tabs, rounds off loud peaks on the grips in the wave style so they don't clip into pops.</p>
         </div>
+        <div class="row" style="margin:10px 0 0"><button id="rumbleHdTest">Test haptic rumble</button>
+          <span class="note" style="flex:1">A tone on the grips that pans left, right and back, twice over 4 seconds. It should feel equally strong all the way across. In Switch Pro mode it plays with the Switch tab's haptics style; in other modes it plays as Wave. A controller already playing DualSense audio haptics is skipped.</span></div>
         <div class="row" style="margin:10px 0 0"><button id="rumbleTest">Test rumble</button>
           <span class="note" style="flex:1">Buzzes every connected controller for half a second at the settings above, so you can compare styles without launching a game.</span></div>
-        <p class="note">Strength is a percentage of the amplitude the game asked for; Each controller type keeps its own: 200% is the default (100% on the Switch with HD rumble on, whose tone style is rough at full level), so leave it there for stock feel. Style reshapes the two motors before that scale: <strong>mono</strong> drives both at the stronger value, <strong>heavy</strong> and <strong>light</strong> mute one motor each, <strong>punchy</strong> softens weak effects while leaving strong ones alone, and <strong>soft</strong> lifts weak ones so subtle rumble is felt.</p>
+        <p class="note">Strength is a percentage of the amplitude the game asked for; Each controller type keeps its own: 200% is the default (100% on the Switch with HD rumble on), so leave it there for stock feel. Style reshapes the two motors before that scale: <strong>mono</strong> drives both at the stronger value, <strong>heavy</strong> and <strong>light</strong> mute one motor each, <strong>punchy</strong> softens weak effects while leaving strong ones alone, and <strong>soft</strong> lifts weak ones so subtle rumble is felt.</p>
       </div>
       <p id="rumbleOld" class="note hide">This puck's firmware predates the rumble-shaping settings — update it to configure them.</p>
     </div>
@@ -621,9 +623,9 @@ renderTrail();
 // (k: 0..3 back paddles, 4 QAM, 5 A/B-swap, 6 trackpad-haptics, 7 LED brightness, 8 rumble). Blob v17 reads them back at p[73 + et*9 + ...].
 const DPAD = {12:"D-pad Up",13:"D-pad Down",14:"D-pad Left",15:"D-pad Right"};
 // Grip limiter knee, percent of full scale (50..100; 100 = off): per type (fields 120..123), or the shared field 115 on older firmware
-const HAPTIC_KNEES=[50,60,70,80,90,100];
+const HAPTIC_KNEES=[50,60,70,80,85,90,95,100];
 // Haptics styles of the grips (AUDIO_STYLE_* in config.h): per type (fields 124..127), or the DualSense's field 88 on older firmware
-const HAPTIC_STYLES=[[3,"Wave"],[1,"Tone"],[2,"Split"],[0,"Rumble"]];
+const HAPTIC_STYLES=[[3,"Wave (default)"],[1,"Tone"],[2,"Split"],[0,"Rumble"]];
 // firmware >= v23 with the per-type blob bytes (payload p[200..207]); set by the status poll
 let g_perTypeHaptics=false;
 // firmware with the per-type rumble strength bytes (payload p[208..211], fields 108..111); set by the status poll
@@ -775,11 +777,16 @@ function setTab(et){
       // 0 = Auto (firmware default): the loudest recent haptic plays at full strength
       const sl=document.createElement("input"); sl.type="range"; sl.min=0; sl.max=500; sl.step=10; row.appendChild(sl);
       const vspan=document.createElement("span"); vspan.className="val"; row.appendChild(vspan);
-      sl.value=0; vspan.textContent="Auto";
-      sl.addEventListener("input",()=>{ vspan.textContent=(+sl.value===0)?"Auto":sl.value+"%"; });
+      // Wave skips the auto gain, so there Auto is a fixed 100%
+      const gainLabel=v=>+v?v+"%":(rec.audioStyle && +rec.audioStyle.value===3)?"Auto (100%)":"Auto";
+      sl.value=0; vspan.textContent=gainLabel(0);
+      sl.addEventListener("input",()=>{ vspan.textContent=gainLabel(sl.value); });
       sl.addEventListener("change",()=>setField(30, (+sl.value)/2));
       sec.appendChild(row);
-      rec.audioGain=sl; rec.audioGainV=vspan;
+      const gnote=document.createElement("p"); gnote.className="note";
+      gnote.textContent="The Wave style stops getting stronger at 250%: past that a full-strength haptic track overdrives the grips and they grind. Higher gains still apply to the Tone, Split and Rumble styles.";
+      sec.appendChild(gnote);
+      rec.audioGain=sl; rec.audioGainV=vspan; rec.audioGainLabel=gainLabel;
     }
     // Grip rumble strength: each type keeps its own (the Switch's is the one for its HD rumble setting)
     { const row=document.createElement("div"); row.className="row";
@@ -788,7 +795,12 @@ function setTab(et){
       for(const v of RUMBLE_SCALES){ const o=document.createElement("option"); o.value=v; o.textContent=v+"%"; sel.appendChild(o); }
       row.appendChild(sel); sec.appendChild(row);
       rec.strength=sel;
-      sel.addEventListener("change",()=>setField(g_perTypeStrength?108+et:22, (+sel.value)/2)); }
+      sel.addEventListener("change",()=>setField(g_perTypeStrength?108+et:22, (+sel.value)/2));
+      if(def.key==="SWITCH"){
+        const note=document.createElement("p"); note.className="note";
+        note.textContent="With HD rumble, the Wave style stops getting stronger at 100%: past that a full-strength effect overdrives the grips and they grind. Higher strengths still apply to the Tone, Split and Rumble styles.";
+        sec.appendChild(note);
+      } }
     // Haptics style and grip limiter (DS5 and Switch). Style (protocol v23): 0 rumble = the motor-style rumble,
     // 1 tone = smooth per-actuator tones, 2 split = below ~80 Hz as rumble, the rest as tones, 3 wave = the haptic
     // channels streamed to the grips (default). The Switch plays HD rumble through the same four. Both are per
@@ -800,14 +812,26 @@ function setTab(et){
         for(const [v,lbl] of HAPTIC_STYLES){ const o=document.createElement("option"); o.value=v; o.textContent=lbl; sty.appendChild(o); }
         row.appendChild(sty); sec.appendChild(row);
         rec.audioStyle=sty;
-        sty.addEventListener("change",()=>setField(g_perTypeHaptics?124+et:88, +sty.value)); }
+        sty.addEventListener("change",()=>setField(g_perTypeHaptics?124+et:88, +sty.value));
+        if(rec.audioGainLabel) sty.addEventListener("change",()=>{ rec.audioGainV.textContent=rec.audioGainLabel(rec.audioGain.value); }); }
       { const row=document.createElement("div"); row.className="row";
         const lab=document.createElement("label"); lab.textContent="Grip limiter"; row.appendChild(lab);
         const knee=document.createElement("select");
-        for(const v of HAPTIC_KNEES){ const o=document.createElement("option"); o.value=v; o.textContent=v===100?"off":v+"%"+(v===70?" (default)":""); knee.appendChild(o); }
+        for(const v of HAPTIC_KNEES){ const o=document.createElement("option"); o.value=v; o.textContent=v===100?"off":v+"%"+(v===85?" (default)":""); knee.appendChild(o); }
         row.appendChild(knee); sec.appendChild(row);
         rec.knee=knee;
         knee.addEventListener("change",()=>setField(g_perTypeHaptics?120+et:115, +knee.value)); }
+      // Soft boost (fields 144 + type): raises quiet passages of the grip stream, up to 1.5x / 2x / 3x / 4x
+      { const row=document.createElement("div"); row.className="row hide";
+        const lab=document.createElement("label"); lab.textContent="Soft boost"; row.appendChild(lab);
+        const lift=document.createElement("select");
+        for(const [v,lbl] of [[0,"Off"],[1,"Gentle (up to 1.5×, default)"],[2,"Low (up to 2×)"],[3,"Medium (up to 3×)"],[4,"High (up to 4×)"]]){ const o=document.createElement("option"); o.value=v; o.textContent=lbl; lift.appendChild(o); }
+        row.appendChild(lift); sec.appendChild(row);
+        const note=document.createElement("p"); note.className="note hide";
+        note.textContent="Raises quiet haptics, like soft footsteps, so you can feel them. Strong hits are left as they are. The grips play even very soft vibration, but a hand barely notices it below a few percent of full strength. Applies to the Wave style.";
+        sec.appendChild(note);
+        rec.lift=lift; rec.liftRow=row; rec.liftNote=note;
+        lift.addEventListener("change",()=>setField(144+et, +lift.value)); }
     }
     if(def.key==="SWITCH"){
       // trackpad tone strength of the HD rumble (field 141); 0 = grips only
@@ -1680,16 +1704,24 @@ function applyBlob(p){
         if(document.activeElement!==rec.knee) rec.knee.value=HAPTIC_KNEES.reduce((a,b)=>Math.abs(b-k)<Math.abs(a-k)?b:a);
         rec.knee.disabled = !pcmCap;
       }
-      // with HD rumble off the Switch plays plain rumble, which the style and limiter don't touch
+      if(rec.lift){
+        // payload p[213+et] = firmware p[215+et]; hidden on firmware without soft boost
+        const cap=p.length>216;
+        rec.liftRow.classList.toggle("hide",!cap); rec.liftNote.classList.toggle("hide",!cap);
+        if(cap && document.activeElement!==rec.lift) rec.lift.value=p[213+et]<=4 ? p[213+et] : 1;
+        rec.lift.disabled = !cap;
+      }
+      // with HD rumble off the Switch plays plain rumble, which the style, limiter and soft boost don't touch
       if(rec.hdRumble && p.length>208 && p[208]===0){
         if(rec.audioStyle) rec.audioStyle.disabled=true;
         if(rec.knee) rec.knee.disabled=true;
+        if(rec.lift) rec.lift.disabled=true;
       }
       if(rec.audioGain && p.length>195){
         const gain = p[195]*2;
         if(document.activeElement!==rec.audioGain){
           rec.audioGain.value = gain;
-          rec.audioGainV.textContent = (gain===0)?"Auto":gain + "%";
+          rec.audioGainV.textContent = rec.audioGainLabel(gain);
         }
       }
       if(document.activeElement!==rec.led){ rec.led.value=led; rec.ledV.textContent=(led===0)?"Auto":led+"%"; }
@@ -3006,6 +3038,7 @@ for(const id of ["mDiv","mFric"]){
   $("#"+id).addEventListener("change", ()=>setField(field, +$("#"+id).value));
 }
 // per-type back/QAM/A-B-swap/haptics handlers are wired in buildTypeCfgs()
+$("#rumbleHdTest").onclick=async()=>{ if(dev){ await send([0x36]); log("haptic rumble pan test sent"); } };
 $("#rumbleTest").onclick=async()=>{ if(dev){ await send([0x16]); log("test rumble sent (style "+$("#rumbleStyle").value+")"); } };
 $("#rumbleStyle").addEventListener("change", ()=>setField(39, +$("#rumbleStyle").value));
 $("#swGyroMap").addEventListener("change", ()=>setField(38, +$("#swGyroMap").value));
