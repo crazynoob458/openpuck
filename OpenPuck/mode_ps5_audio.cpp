@@ -31,8 +31,15 @@ static uint8_t g_uac1EpIn = 0x88;
 static uint8_t g_uac1AltSetting = 0;
 static uint8_t g_uac1AltSettingIn = 0;
 
-CFG_TUD_MEM_SECTION static uint32_t g_isoOutBuf32[UAC1_ISO_EP_BUFSIZE / 4];
-static uint8_t *g_isoOutBuf = (uint8_t *)g_isoOutBuf32;
+// Two buffers: the next packet's transfer is armed before this one is processed. The nRF5x driver drops an ISO
+// OUT packet without an error when no transfer is armed at its SOF, and the DSP for one packet plus a radio
+// TX with interrupts off can run past the 1 ms frame. Each dropped packet cut 1 ms out of the wave: a tick.
+CFG_TUD_MEM_SECTION static uint32_t g_isoOutBuf32[2][UAC1_ISO_EP_BUFSIZE / 4];
+static uint8_t g_isoOutIdx = 0;
+static inline uint8_t *isoOutBuf(uint8_t i)
+{
+	return (uint8_t *)g_isoOutBuf32[i & 1];
+}
 // Never written: every mic packet is silence.
 CFG_TUD_MEM_SECTION static uint32_t g_isoInBuf32[UAC1_ISO_IN_EP_BUFSIZE / 4];
 static uint8_t *g_isoInBuf = (uint8_t *)g_isoInBuf32;
@@ -676,7 +683,7 @@ static const tusb_desc_endpoint_t s_iso_ep_in = {
 	.bInterval = 1,
 };
 
-// SET_CUR data for controls we don't apply (sampling rate, unknown selectors). Kept apart from g_isoOutBuf,
+// SET_CUR data for controls we don't apply (sampling rate, unknown selectors). Kept apart from the ISO OUT buffers,
 // which the ISO OUT DMA may be filling when the host configures the mic mid-stream.
 static uint8_t s_ctrlScratch[8];
 
@@ -732,7 +739,9 @@ static bool uac1_control_xfer_cb(uint8_t rhport, uint8_t stage,
 			g_uac1AltSetting = alt;
 			g_pcmDiag.audioAlt = alt;
 			if (alt == 1) {
-				usbd_edpt_xfer(rhport, g_uac1EpOut, g_isoOutBuf,
+				g_isoOutIdx = 0;
+				usbd_edpt_xfer(rhport, g_uac1EpOut,
+					       isoOutBuf(0),
 					       UAC1_ISO_EP_BUFSIZE);
 			}
 		} else if (itf == g_uac1ItfAsIn) {
@@ -811,11 +820,14 @@ static bool uac1_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result,
 {
 	if (ep_addr == g_uac1EpOut && result == XFER_RESULT_SUCCESS) {
 		g_pcmDiag.audioPkts++;
-		if (xferred_bytes > 0 && g_uac1AltSetting == 1)
-			processAudioSamples(g_isoOutBuf, xferred_bytes);
-		if (g_uac1AltSetting == 1)
-			usbd_edpt_xfer(rhport, g_uac1EpOut, g_isoOutBuf,
-				       UAC1_ISO_EP_BUFSIZE);
+		if (g_uac1AltSetting != 1)
+			return true;
+		uint8_t *got = isoOutBuf(g_isoOutIdx);
+		g_isoOutIdx ^= 1;
+		usbd_edpt_xfer(rhport, g_uac1EpOut, isoOutBuf(g_isoOutIdx),
+			       UAC1_ISO_EP_BUFSIZE);
+		if (xferred_bytes > 0)
+			processAudioSamples(got, xferred_bytes);
 		return true;
 	}
 	if (ep_addr == g_uac1EpIn) {

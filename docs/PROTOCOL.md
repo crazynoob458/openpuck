@@ -386,7 +386,8 @@ PCM streaming, measured with the controller's IMU over USB (2026-10-03):
   about twice full scale (two full bands at 200% grip strength) makes the grips audibly grind. OpenPuck therefore
   caps the Switch wave style at 100% grip strength and the DualSense wave style at 250% haptic gain. A soft-limit
   knee of 85 costs no measurable strength, while 70 costs 3-5% near the top; two blind A/B tests (steady and
-  swept) found no audible difference, with 85 preferred.
+  swept) found no audible difference, with 85 preferred. On the DualSense at 250% gain, a blind swept A/B with no
+  dropped packets or underruns felt 85 and 100 alike and 70 weaker; 85 stays the default as headroom for peaks.
 - An 8 kHz stereo stream is 258 frames/s, above one relay per 4 ms poll. OpenPuck flushes a second queued relay in
   the same cycle when the ring holds a backlog, and resends an unanswered `0x86`-`0x89` frame once with the same PID.
   A frame still unanswered goes back to the front of the ring for up to two later cycles: a lost frame would take its
@@ -406,6 +407,16 @@ PCM streaming, measured with the controller's IMU over USB (2026-10-03):
   (`DISABLED` -> `RXEN` shortcut), the RX buffer goes in once TX has started (`PACKETPTR` is read at `START`), and a
   reply is detected by `CRCOK`/`CRCERROR`, which only a received packet raises. Afterwards: 1% unanswered, 250
   polls/s (207 before).
+- **Send timing.** The controller's fill covers ~15.5 ms of lateness. A frame later than that, measured against a
+  steady sample clock from the stream's first frame, runs the stream dry mid-play. Two causes found in DualSense
+  mode (2026-10-12):
+  - A PCM frame's ACK often carries the controller's input, so the poll right after it gets an empty ACK. The poll
+    loop counted that as a missed poll and skipped the next relay turn (~90 times/s), holding frames a cycle: send
+    times spread ~14 ms and streams ran dry. An empty ACK with a good CRC now counts as a reply: no skips, spread
+    ~9-12 ms, no mid-stream underruns.
+  - The nRF5x USB driver drops an ISO OUT packet without an error when no transfer is armed at its SOF. The audio
+    callback re-armed only after its DSP, so a slow packet lost the next one: 1 ms cut from the wave, felt as a
+    tick. The callback now arms a second buffer first; every packet arrives.
 - A stream that has gone silent is left to run dry. A `0x86` op 1 or a `-128 dB` `0x83` cut sent to an idle actuator
   plays as a click, so OpenPuck sends them only while something may still be playing.
 

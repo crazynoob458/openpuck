@@ -4089,6 +4089,9 @@ static void rfConnStep()
 	// Prioritize telemetry over haptics: if the previous poll cycle for this slot did
 	// not get a reply (packet drop / contention), skip the relay flush and go straight
 	// to the E3 GET poll so telemetry (especially gyro) never starves under RF load.
+	// An empty ACK counts as a reply: the controller often packs its input into the
+	// relay's ACK just before, leaving the poll nothing to send. Counting that as a drop
+	// skips about a third of relay turns and holds wave frames back a cycle.
 	static bool lastPollReplied[NSLOT] = { true, true, true, true };
 
 	// Inline poll helper; emits E7 re-assert (every 32 polls, bounded reply window so a
@@ -4142,9 +4145,9 @@ static void rfConnStep()
 				    (uint32_t)g_pollUs)
 				rx = rfConnTx(ch, s1, p, 1);
 		}
-		lastPollReplied[k] = (rx > 0);
 		if (!lastPollReplied[k] && relayPending())
 			g_pcmDiag.flushSkip++;
+		lastPollReplied[k] = rx > 0 || (g_rfReplyUs && g_rfReplyCrcOk);
 		if (rx)
 			g_chF1[0]++;
 		g_stPoll[k]++; // one true poll cycle for this slot
