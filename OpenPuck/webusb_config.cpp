@@ -597,21 +597,21 @@ static bool webusbSendRfStatus()
 }
 
 // 0x35: grip PCM stream counters since boot (g_pcmDiag), written from the usbd task like the blob:
-//   [0xB1][198][ver=1][made sent acked requeued lost evicted: u32 LE][0x44 events 0..15: u16 LE]
+//   [0xB1][200][ver=1][made sent acked requeued lost evicted: u32 LE][0x44 events 0..15: u16 LE]
 //   [polls/s: u16 LE][relays/s: u16 LE][Switch HD wave rate, kHz: 4][reply delay buckets 0..15: u16 LE]
 //   [corrupt replies: u16 LE][outcome[attempt 0..2][reply 0..4]: u16 LE, see PcmDiag]
 //   [audio packets u32][audio alt u8][DualSense stream slots u8][left haptic level u16]
 //   [queue delay buckets 0..7: u16][made-gap buckets 0..7: u16][ran dry: end, mid-stream, at start: u16]
 static void webusbSendPcmDiag()
 {
-	static uint8_t f[2 + 198];
+	static uint8_t f[2 + 200];
 	uint8_t *p = f + 3;
 	auto put = [&](uint32_t v, uint8_t n) {
 		for (uint8_t i = 0; i < n; i++)
 			*p++ = (uint8_t)(v >> (8 * i));
 	};
 	f[0] = 0xB1;
-	f[1] = 198;
+	f[1] = 200;
 	f[2] = 1;
 	const PcmDiag d = g_pcmDiag;
 	const uint32_t c[6] = { d.made,	    d.sent, d.acked,
@@ -647,6 +647,7 @@ static void webusbSendPcmDiag()
 	put(d.otherRelays, 4);
 	put(d.flushSkip, 4);
 	put(g_connPoll, 2);
+	put(d.isoRecover, 2);
 	if (tud_vendor_write_available() >= sizeof f) {
 		usb_web.write(f, sizeof f);
 		usb_web.flush();
@@ -1172,6 +1173,7 @@ void webusbPoll()
 				// 0x23: plain clean reboot. After a committed 0x22 the boot path applies the staged
 				// image; unarmed it is just a normal restart.
 			} else if (op == 0x23) {
+				cfgSaveFlush();
 				usb_web.flush();
 				delay(40);
 				faultDiagArmIntentionalReset();
@@ -1216,7 +1218,7 @@ void webusbPoll()
 						if (et == g_etype)
 							applyActiveType();
 					}
-					saveCfg();
+					saveCfgSoon();
 					g_blobRequest = true;
 					memmove(buf, buf + need, n - need);
 					n -= need;
@@ -1511,7 +1513,7 @@ void webusbPoll()
 					break;
 				}
 				if (persist)
-					saveCfg();
+					saveCfgSoon();
 				if (!rfStatusOnly)
 					g_blobRequest = true;
 			} else if (op == 0x03) {

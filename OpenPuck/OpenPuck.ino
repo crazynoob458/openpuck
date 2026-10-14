@@ -114,6 +114,8 @@ void modeSwitchReboot(uint8_t mode)
 	if (modeValid(mode))
 		saveMode(
 			mode); // 0xFF / invalid => keep the current mode (bond-import reboot)
+	// a setting changed while DualSense audio streams waits for the stream to stop; the reboot must not drop it
+	cfgSaveFlush();
 	if (USBDevice.mounted())
 		USBDevice.detach();
 
@@ -404,6 +406,7 @@ void loop()
 #endif
 	faultDiagSetStage(7);
 	usbMountTask(); // dynamic mount/unmount of connected controllers (no-op unless enabled)
+	cfgSaveTask();
 	faultDiagSetStage(8);
 	usbTxPump(); // drain queued device->host reports HERE, in loop -- never off-loop (jitters the RF poll)
 	puckCmdLogDrain(); // print captured USB feature commands (diagnostic; no-op unless g_cmdCapture)
@@ -447,6 +450,7 @@ void loop()
 #endif
 	faultDiagSetStage(7);
 	usbMountTask(); // dynamic mount/unmount of connected controllers (no-op unless enabled)
+	cfgSaveTask();
 	faultDiagSetStage(8);
 	usbTxPump(); // drain queued device->host reports HERE, in loop -- never off-loop (jitters the RF poll)
 	puckCmdLogDrain(); // print captured USB feature commands (diagnostic; no-op unless g_cmdCapture)

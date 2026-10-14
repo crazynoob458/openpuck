@@ -36,6 +36,8 @@ static uint8_t g_uac1AltSettingIn = 0;
 // TX with interrupts off can run past the 1 ms frame. Each dropped packet cut 1 ms out of the wave: a tick.
 CFG_TUD_MEM_SECTION static uint32_t g_isoOutBuf32[2][UAC1_ISO_EP_BUFSIZE / 4];
 static uint8_t g_isoOutIdx = 0;
+// last ISO OUT packet (or alt 1 selected), for the stall watchdog (isoWatch)
+static volatile uint32_t s_isoLastMs;
 static inline uint8_t *isoOutBuf(uint8_t i)
 {
 	return (uint8_t *)g_isoOutBuf32[i & 1];
@@ -547,6 +549,11 @@ static void toneUpdate(ToneSide *t, uint8_t side, uint16_t env, uint16_t ref,
 // its slot leaves the stream and rejoins with a fresh format.
 #define WAVE_HANG_MS 300u
 
+bool ps5AudioStreaming()
+{
+	return g_uac1AltSetting == 1;
+}
+
 uint8_t ps5WaveMask()
 {
 	return s_waveMask;
@@ -576,6 +583,8 @@ static void waveUpdate(bool active, float waveScale, uint32_t now)
 	g_pcmDiag.waveMask = mask;
 }
 
+static void isoWatch(uint32_t now);
+
 void ps5AudioTask(void)
 {
 	static uint16_t s_envL = 0, s_envR = 0;
@@ -585,6 +594,7 @@ void ps5AudioTask(void)
 	static ToneSide s_toneL = {}, s_toneR = {};
 
 	uint32_t now = millis();
+	isoWatch(now);
 	if ((uint32_t)(now - s_lastTickMs) < HAPTIC_TICK_MS)
 		return;
 	s_lastTickMs = now;
@@ -744,6 +754,7 @@ static bool uac1_control_xfer_cb(uint8_t rhport, uint8_t stage,
 			g_uac1AltSetting = alt;
 			g_pcmDiag.audioAlt = alt;
 			if (alt == 1) {
+				s_isoLastMs = millis();
 				g_isoOutIdx = 0;
 				usbd_edpt_xfer(rhport, g_uac1EpOut,
 					       isoOutBuf(0),
@@ -820,11 +831,43 @@ static bool uac1_control_xfer_cb(uint8_t rhport, uint8_t stage,
 	return false;
 }
 
+// A flash write while the stream plays can leave the ISO OUT endpoint wedged: the driver still counts a transfer
+// as pending, so every re-arm is refused and the host's packets are dropped until the next bus reset (measured:
+// alt 1, 1000 packets/s sent, none received). The host sends a packet every frame while alt 1 is selected, so
+// a 50 ms gap means the endpoint is stuck: close, reopen and re-arm it, in the usbd task that owns it.
+#define ISO_STALL_MS 50u
+static volatile bool s_isoRecovering;
+
+static void isoRecover(void *param)
+{
+	(void)param;
+	usbd_edpt_close(0, g_uac1EpOut);
+	usbd_edpt_open(0, &s_iso_ep_out);
+	g_isoOutIdx = 0;
+	if (g_uac1AltSetting == 1)
+		usbd_edpt_xfer(0, g_uac1EpOut, isoOutBuf(0),
+			       UAC1_ISO_EP_BUFSIZE);
+	s_isoLastMs = millis();
+	s_isoRecovering = false;
+}
+
+static void isoWatch(uint32_t now)
+{
+	// signed: the usbd task can stamp a packet after the caller read now
+	if (g_uac1AltSetting != 1 || s_isoRecovering ||
+	    (int32_t)(now - s_isoLastMs) < (int32_t)ISO_STALL_MS)
+		return;
+	s_isoRecovering = true;
+	g_pcmDiag.isoRecover++;
+	usbd_defer_func(isoRecover, NULL, false);
+}
+
 static bool uac1_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result,
 			 uint32_t xferred_bytes)
 {
 	if (ep_addr == g_uac1EpOut && result == XFER_RESULT_SUCCESS) {
 		g_pcmDiag.audioPkts++;
+		s_isoLastMs = millis();
 		if (g_uac1AltSetting != 1)
 			return true;
 		uint8_t *got = isoOutBuf(g_isoOutIdx);

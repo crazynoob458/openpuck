@@ -288,6 +288,8 @@ struct PcmDiag {
 	// relay entries other than 0x88 sent, and poll cycles that skipped the relay because the last poll got no
 	// reply, while a frame waited
 	uint32_t otherRelays, flushSkip;
+	// DualSense: times the ISO OUT endpoint was found wedged and re-armed (mode_ps5_audio.cpp isoWatch)
+	uint16_t isoRecover;
 };
 extern PcmDiag g_pcmDiag;
 // count a controller 0x44 stream event, classing a "ran dry" by where in the stream it landed

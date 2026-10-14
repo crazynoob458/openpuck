@@ -226,8 +226,31 @@ void cfgExtWrite(uint8_t index, uint8_t value)
 		g_cfgExt[index] = value;
 }
 
+static bool g_cfgSavePending;
+
+void saveCfgSoon()
+{
+	if (ps5AudioStreaming())
+		g_cfgSavePending = true;
+	else
+		saveCfg();
+}
+
+void cfgSaveTask()
+{
+	if (g_cfgSavePending && !ps5AudioStreaming())
+		saveCfg();
+}
+
+void cfgSaveFlush()
+{
+	if (g_cfgSavePending)
+		saveCfg();
+}
+
 void saveCfg()
 {
+	g_cfgSavePending = false;
 	Cfg c = { CFG_MAGIC,
 		  g_usbMode,
 		  (uint8_t)g_mDiv,

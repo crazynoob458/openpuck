@@ -279,6 +279,15 @@ void cfgExtWrite(uint8_t index, uint8_t value);
 
 void loadCfg();
 void saveCfg();
+// A flash save stalls the CPU long enough to break a running DualSense USB audio stream: the game loses the grip
+// haptics and the controller's input reports stop. While one streams, a setting applies at once and its save
+// waits for the stream to stop (cfgSaveTask); a reboot writes it first (cfgSaveFlush). Power lost before then
+// loses it.
+void saveCfgSoon();
+void cfgSaveTask();
+void cfgSaveFlush();
+// a host has the DualSense audio streaming interface open (mode_ps5_audio.cpp)
+bool ps5AudioStreaming();
 // FULL factory wipe: reformat the internal LittleFS, erasing cfg.bin (modes/tunables/chords) AND bonds.bin
 // (paired controller). Irreversible; the caller reboots so the next boot comes up on clean defaults and the
 // controller must be re-paired. Gated behind explicit confirmation at every call site.
