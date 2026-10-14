@@ -859,6 +859,7 @@ struct HdPcmState {
 	uint16_t queued;
 	bool on;
 	bool quiet[2];
+	HapticLift lift;
 	uint8_t l[PCM_SAMPLES], r[PCM_SAMPLES];
 };
 static HdPcmState g_hdPcmState[NSLOT];
@@ -912,7 +913,7 @@ static void hdPcmRun(uint8_t slot, const uint16_t bands[4],
 	}
 	// A side's two bands restart in step on each effect after silence. Left running through the hang, they
 	// would start the same effect at a random offset, and close frequencies beat, so it swelled or faded at
-	// random (issue #17). The level is zero at the restart, so the jump can't click.
+	// random. The level is zero at the restart, so the jump can't click.
 	for (uint8_t side = 0; side < 2; side++) {
 		bool sounding = bands[side * 2] || bands[side * 2 + 1];
 		if (sounding && p.quiet[side])
@@ -921,19 +922,22 @@ static void hdPcmRun(uint8_t slot, const uint16_t bands[4],
 	}
 	for (; due; due--) {
 		p.clockUs += usPerSample;
+		float v[2] = { 0, 0 };
 		for (uint8_t side = 0; side < 2; side++) {
-			float v = 0;
 			for (uint8_t band = 0; band < 2; band++) {
 				uint8_t k = side * 2 + band;
 				p.phase[k] += step[k];
 				if (p.phase[k] > 6.2831853f)
 					p.phase[k] -= 6.2831853f;
-				v += bands[k] * sinf(p.phase[k]);
+				v[side] += bands[k] * sinf(p.phase[k]) * gain;
 			}
-			// the two bands can sum past full scale
-			(side ? p.r : p.l)[p.fill] =
-				hapticUlaw(hapticSoftLimit(v * gain));
 		}
+		float peak = fabsf(v[0]) > fabsf(v[1]) ? fabsf(v[0]) :
+							 fabsf(v[1]);
+		float lift = hapticLiftGain(&p.lift, peak);
+		// the two bands can sum past full scale
+		p.l[p.fill] = hapticUlaw(hapticSoftLimit(v[0] * lift));
+		p.r[p.fill] = hapticUlaw(hapticSoftLimit(v[1] * lift));
 		if (++p.fill == hapticPcmFrameLen(p.queued, PCM_RATE_HZ)) {
 			hapticPcmSend(slot, p.l, p.r, p.fill);
 			if (p.queued < 1000u)

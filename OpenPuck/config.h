@@ -229,6 +229,13 @@ extern uint8_t g_typeLimitKnee[ET_COUNT];
 // Haptic style per emulated type (AUDIO_STYLE_*): how the DualSense (ET_DS5) plays its audio haptics and how the
 // Switch (ET_SWITCH) plays HD rumble on the grips. The other types ignore it. g_audioHapticStyle is the DS5 entry.
 extern uint8_t g_typeHapticStyle[ET_COUNT];
+// Soft boost of the grip PCM stream (DualSense wave, Switch HD wave): 0 off, 1..4 raise quiet passages by up to
+// 1.5x / 2x / 3x / 4x (hapticLiftGain in haptics.h). Per type, Switch and DualSense; g_hapticLift is the active
+// type's live copy (applyActiveType).
+#define HAPTIC_LIFT_DEFAULT 1
+#define HAPTIC_LIFT_MAX 4
+extern uint8_t g_typeHapticLift[ET_COUNT];
+extern uint8_t g_hapticLift;
 // the types that have a grip limiter and a haptic style
 static inline bool hapticTypeHasStyle(uint8_t et)
 {

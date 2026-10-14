@@ -70,6 +70,10 @@ uint8_t g_typeHapticStyle[ET_COUNT] = { kHapticStyleDefault[0],
 					kHapticStyleDefault[1],
 					kHapticStyleDefault[2],
 					kHapticStyleDefault[3] };
+uint8_t g_hapticLift = HAPTIC_LIFT_DEFAULT;
+uint8_t g_typeHapticLift[ET_COUNT] = { HAPTIC_LIFT_DEFAULT, HAPTIC_LIFT_DEFAULT,
+				       HAPTIC_LIFT_DEFAULT,
+				       HAPTIC_LIFT_DEFAULT };
 // 200% drove the Switch's tones to their full level, which felt rough, so it starts at 100%
 const uint16_t g_typeRumbleScaleDefault[ET_COUNT] = { RUMBLE_SCALE_PCT, 100u,
 						      RUMBLE_SCALE_PCT,
@@ -131,6 +135,7 @@ void applyActiveType()
 		g_padHaptics = 1;
 		g_rumble = 1;
 		g_hapticLimitKnee = HAPTIC_LIMIT_KNEE_DEFAULT;
+		g_hapticLift = HAPTIC_LIFT_DEFAULT;
 		g_audioHapticStyle = g_typeHapticStyle[ET_DS5];
 		g_ledBright = 0;
 		g_padStick[0] = g_padStick[1] = PS_OFF;
@@ -146,6 +151,7 @@ void applyActiveType()
 	g_rumbleScale = switchPlain() ? g_switchPlainScale :
 					g_typeRumbleScale[g_etype];
 	g_hapticLimitKnee = g_typeLimitKnee[g_etype];
+	g_hapticLift = g_typeHapticLift[g_etype];
 	g_audioHapticStyle = g_typeHapticStyle[ET_DS5];
 	g_ledBright = t.ledBright;
 	g_padStick[0] = g_padStickCfg[g_etype][0];
@@ -204,6 +210,8 @@ struct Cfg {
 	uint8_t switchHd;
 	// the Switch's strength with HD rumble off, percent/2; 0xFF (an older file) -> RUMBLE_SCALE_PCT
 	uint8_t switchPlainScale2;
+	// per-type soft boost (0..HAPTIC_LIFT_MAX); anything else (an older file) -> HAPTIC_LIFT_DEFAULT
+	uint8_t typeHapticLift[ET_COUNT];
 }; // rsvd0 = ex-padSmooth, now the one-shot debug-CDC arm
 
 // Shortest cfg.bin we still accept: the layout as of CFG_MAGIC 0xCF, i.e. everything before the appended tail.
@@ -281,13 +289,15 @@ void saveCfg()
 		  {},
 		  {},
 		  g_switchHd,
-		  (uint8_t)(g_switchPlainScale / 2) };
+		  (uint8_t)(g_switchPlainScale / 2),
+		  {} };
 	memcpy(c.ext, g_cfgExt, sizeof c.ext);
 	for (int i = 0; i < ET_COUNT; i++) {
 		c.type[i] = g_type[i];
 		c.typeLimitKnee[i] = g_typeLimitKnee[i];
 		c.typeHapticStyle[i] = g_typeHapticStyle[i];
 		c.typeRumbleScale2[i] = (uint8_t)(g_typeRumbleScale[i] / 2);
+		c.typeHapticLift[i] = g_typeHapticLift[i];
 		c.padStick[i][0] = g_padStickCfg[i][0];
 		c.padStick[i][1] = g_padStickCfg[i][1];
 	}
@@ -442,6 +452,11 @@ void loadCfg()
 					g_rumbleScale == RUMBLE_SCALE_PCT ?
 						g_typeRumbleScaleDefault[et] :
 						g_rumbleScale;
+				g_typeHapticLift[et] =
+					c.typeHapticLift[et] <=
+							HAPTIC_LIFT_MAX ?
+						c.typeHapticLift[et] :
+						HAPTIC_LIFT_DEFAULT;
 			}
 			// The poll RX window is now FIXED (g_rxWin is const) -- any persisted rxWin10 is ignored.
 		}

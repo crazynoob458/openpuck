@@ -33,6 +33,7 @@ unsigned long g_rumble80Ms[4]={};bool g_rumble80On[4]={};
 uint8_t g_audioHaptics=1;
 uint8_t g_switchHd=1;
 uint8_t g_hapticLimitKnee=100; // 100 = limiter off: these checks are about the HD rumble path, not the knee
+uint8_t g_hapticLift=0; // soft boost off, likewise; its own checks turn it on
 #define ET_SWITCH 1
 #define AUDIO_STYLE_RUMBLE 0
 #define AUDIO_STYLE_TONE 1
@@ -155,6 +156,17 @@ test = '''int main(){
  reset();hapticTestHdPan();hapticHdTask();assert(g_hdRumble[0].bands[0]>30000 && g_hdRumble[0].bands[2]<100);
  now+=1000;hapticHdTask();assert(g_hdRumble[0].bands[0]<100 && g_hdRumble[0].bands[2]>30000 && g_hdRumble[0].bands[3]>30000);
  now+=3100;hapticHdTask();for(int k=0;k<4;k++)assert(g_hdRumble[0].bands[k]==0);
+ // soft boost: off passes through; quiet passages rise 2:1 toward 20% of full scale up to the cap; loud ones
+ // and near-silence are left alone; the envelope falls slowly, so the gain does not jump back between peaks
+ {HapticLift lf={};assert(hapticLiftGain(&lf,0.01f)==1.0f);
+  g_hapticLift=4;lf={};assert(fabsf(hapticLiftGain(&lf,0.01f)-4.0f)<0.01f);
+  lf={};assert(fabsf(hapticLiftGain(&lf,0.05f)-2.0f)<0.01f);
+  lf={};assert(hapticLiftGain(&lf,0.5f)==1.0f);
+  lf={};assert(fabsf(hapticLiftGain(&lf,0.001f)-2.0f)<0.05f);
+  g_hapticLift=1;lf={};assert(fabsf(hapticLiftGain(&lf,0.01f)-1.5f)<0.01f);
+  g_hapticLift=2;lf={};assert(fabsf(hapticLiftGain(&lf,0.01f)-2.0f)<0.01f);
+  lf={};hapticLiftGain(&lf,0.5f);assert(hapticLiftGain(&lf,0.0f)==1.0f && lf.env>0.49f);
+  g_hapticLift=0;}
  reset();hdrBuildLevels();hdrReset(0);uint8_t b[4]={};uint16_t lo,hi;uint8_t packet[9]={};
  assert(hdrDecode(0,0,b,&lo,&hi)==0 && lo==0 && hi==0);
  uint32_t w=(1u<<30)|(1u<<25)|(3u<<20);for(int i=0;i<4;i++)b[i]=(w>>(8*i))&255;

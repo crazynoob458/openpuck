@@ -114,8 +114,8 @@ static bool boardCommand(uint8_t op)
 //                 per type (fields 124..127); p[199] / p[200] stay the DualSense's style and the active type's
 //                 knee for older panels; p[210] Switch Pro HD rumble on/off (field 128); p[211..214] grip rumble
 //                 strength per type as PERCENT/2 (fields 108..111; the Switch's is the one for its HD rumble
-//                 setting), p[53] stays the active type's]
-#define WB_PAYLEN 213
+//                 setting), p[53] stays the active type's; p[215..218] soft boost per type (fields 144..147)]
+#define WB_PAYLEN 217
 // The blob send is drop-on-full (never blocks loop), so the vendor TX FIFO MUST be able to hold a whole blob
 // -- otherwise tud_vendor_write_available() never reaches the frame size and EVERY frame is dropped (blank
 // panel / stale mappings). The Makefile sets -DCFG_TUD_VENDOR_TX_BUFSIZE=256; guard it here so a build without
@@ -144,7 +144,7 @@ static void webusbSendBlob()
 	// protocol version
 	// (23 = +DualSense audio haptics (fields 30/31, blob p[197..198]), haptic style (field 88, p[199]), grip
 	// limiter knee (field 115, p[200]), HD trackpad strength (field 141, p[201]) and the per-type haptics
-	// block p[202..214];
+	// block p[202..218];
 	// 22 = +RF recovery capability marker at blob p[196];
 	// 21 = +rumble style (field 39, blob p[195]) and the REVIVED rumble-strength field 22 at blob p[53], 
 	// now carrying percent/2; 
@@ -364,8 +364,10 @@ static void webusbSendBlob()
 		p[206 + et] = g_typeHapticStyle[et];
 	}
 	p[210] = g_switchHd;
-	for (uint8_t et = 0; et < ET_COUNT; et++)
+	for (uint8_t et = 0; et < ET_COUNT; et++) {
 		p[211 + et] = (uint8_t)(rumbleScaleOf(et) / 2);
+		p[215 + et] = g_typeHapticLift[et];
+	}
 	// CRITICAL: usb_web.write() SPINS (`while (remain && _connected) yield();`) until the IN FIFO drains or the
 	// panel disconnects. If the panel holds the WebUSB interface open but stops reading its IN endpoint -- a
 	// backgrounded tab, or the host briefly not servicing transferIn under load -- the FIFO never empties and
@@ -1442,7 +1444,21 @@ void webusbPoll()
 					break;
 				}
 
-				// Switch Pro HD rumble trackpad strength (percent / 2, 0-500%). Protocol v22; the
+				// Per-type soft boost (144 + et, 0..HAPTIC_LIFT_MAX): Switch and DualSense only
+				case 144:
+				case 145:
+				case 146:
+				case 147: {
+					uint8_t et = (uint8_t)(f - 144);
+					if (hapticTypeHasStyle(et) &&
+					    v <= HAPTIC_LIFT_MAX) {
+						g_typeHapticLift[et] = v;
+						applyActiveType();
+					}
+					break;
+				}
+
+				// Switch Pro HD rumble trackpad strength (percent / 2, 0-500%). Protocol v23; the
 				// same field upstream PR #303 uses.
 				case 141:
 					g_hdPadScale =

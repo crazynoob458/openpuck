@@ -277,12 +277,16 @@ emulated type: the DualSense's is field 124 + 3 and the Switch Pro's (its HD rum
 `cfg.bin`.
 
 **Grip limiter** (Rumble card, protocol v23): the knee of the soft limiter on the grip PCM stream, as a
-percent of full scale: 50, 60, 70 (default), 80, 90, or 100 = off. Below the knee the waveform passes unchanged;
+percent of full scale: 50, 60, 70, 80, 85 (default), 90, 95, or 100 = off. Below the knee the waveform passes unchanged;
 above it, peaks are rounded off toward full scale instead of clipping, which plays as a pop. Lower is smoother on
 the strongest hits, higher keeps more of their punch. The DualSense and the Switch each keep their own knee
 (`g_typeLimitKnee`; `g_hapticLimitKnee` is the active type's copy, read by `hapticSoftLimit` in haptics.h): fields
 120 + type, blob `p[202..205]`, saved in `cfg.bin`. Field 115 and `p[200]` still work for older panels: a write
 sets both types, and the read is the active type's.
+
+**Soft boost** (protocol v23): raises quiet passages of the wave stream so soft effects such as footsteps stay
+felt, up to 1.5× (default), 2×, 3× or 4×, or off. Strong hits pass unchanged to the limiter. Per type, like the
+limiter: fields 144 + type, blob `p[215..218]`, saved in `cfg.bin`. Details in PROTOCOL.md.
 
 ## 8. Pitfalls
 

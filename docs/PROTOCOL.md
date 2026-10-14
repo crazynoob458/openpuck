@@ -527,16 +527,22 @@ Messages:
     renders HD rumble, §9.5), `38` Switch Pro gyro mapping.
     DualSense audio haptics: `31` on/off, `30` gain as percent/2 (10-500%, 0 = automatic), `88` style
     (0 rumble, 1 tone, 2 split, 3 wave; default 3). See DUALSENSE_HAPTICS.md.
-    Grip limiter (blob version ≥ 22): `115` soft-limit knee of the grip PCM stream, percent of full scale,
-    50..100 (70 default, 100 = off: hard clip only); other values are ignored. Per type, only for the Switch
+    Grip limiter (blob version ≥ 23): `115` soft-limit knee of the grip PCM stream, percent of full scale,
+    50..100 (85 default, 100 = off: hard clip only); other values are ignored. Per type, only for the Switch
     (type 1) and the DualSense (type 3): `120 + type` is the knee and `124 + type` the haptic style (as `88`).
-    Switch Pro HD rumble plays its grips in that style (tone by default; every other type starts on wave): wave streams the bands as PCM, tone plays each side's
+    Switch Pro HD rumble plays its grips in that style (every type starts on wave): wave streams the bands as PCM, tone plays each side's
     stronger band as a grip tone, split plays the low band as `0x80` rumble and the high band as a grip tone, rumble
     plays the stronger band as `0x80`. The pads always play the high band as tones. `115` and `88` are the older
     shared forms: `115` sets both types' knee and `88` the DualSense's style.
-    `128` (blob version ≥ 22): Switch Pro HD rumble on/off (default on). Off plays the console's rumble as plain
+    `144 + type` (blob version ≥ 23, Switch and DualSense only): soft boost of the grip PCM stream, `0` off,
+    `1`-`4` raise quiet passages by up to 1.5× / 2× / 3× / 4× (default 1). It is an upward compressor on the
+    Wave-style stream: it follows the louder grip's peak level (instant rise, ~80 ms fall) and, below 20% of full
+    scale, raises it 2:1 toward that level, capped by the setting; louder passages pass unchanged to the limiter.
+    Below 0.3% of full scale the boost fades out, so noise in a quiet track stays quiet. The grips play down to
+    ~0.5% of full scale in proportion (IMU), but a hand barely feels a few percent.
+    `128` (blob version ≥ 23): Switch Pro HD rumble on/off (default on). Off plays the console's rumble as plain
     `0x80` motor rumble, each side's peak, shaped by `39` and `22` like any other mode.
-    `141` (blob version ≥ 22): Switch Pro HD rumble trackpad strength as percent/2 (0-500%, 100 default;
+    `141` (blob version ≥ 23): Switch Pro HD rumble trackpad strength as percent/2 (0-500%, 100 default;
     0 = grips only).
   - `0x03 <mode>`: switch mode and reboot
   - `0x07`: re-init haptics (clear a stuck buzz)
@@ -651,7 +657,8 @@ audio-haptic gain as percent/2 (0 = automatic), audio haptics on/off, audio hapt
 percent, and the Switch Pro HD trackpad strength as percent/2. Payload bytes 200..203 (`p[202..205]`) are the
 grip-limiter knee per type, and 204..207 (`p[206..209]`) the haptic style per type, both indexed by emulated type
 (Xbox, Switch, DS4, DS5); `p[199]` and `p[200]` remain the DualSense's style and the active type's knee. Payload
-byte 208 (`p[210]`) is Switch Pro HD rumble on/off.
+byte 208 (`p[210]`) is Switch Pro HD rumble on/off, 209..212 (`p[211..214]`) the grip strength per type, and
+213..216 (`p[215..218]`) the soft boost per type.
 
 
 ### 10.1 Backup / clone (bond export & import)

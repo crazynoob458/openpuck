@@ -283,11 +283,13 @@ static void processAudioSamples(const uint8_t *data, uint32_t len)
 	static uint8_t s_dec = 0, s_fill = 0;
 	static uint16_t s_queued = 0;
 	static uint8_t s_pcmL[PCM_SAMPLES], s_pcmR[PCM_SAMPLES];
+	static HapticLift s_lift = {};
 	uint8_t waveMask = s_waveMask;
 	float waveScale = s_waveScale;
 	if (!waveMask) {
 		s_fill = 0;
 		s_queued = 0;
+		s_lift = {};
 	}
 
 	uint32_t num_frames = len / 8;
@@ -317,8 +319,11 @@ static void processAudioSamples(const uint8_t *data, uint32_t len)
 		s_dec = 0;
 		// soft limit, not hapticUlaw's clamp: a sharp hit peaks above the 20 ms envelope the haptic gain
 		// follows, and a clipped peak plays as a pop
-		s_pcmL[s_fill] = hapticUlaw(hapticSoftLimit(al * waveScale));
-		s_pcmR[s_fill] = hapticUlaw(hapticSoftLimit(ar * waveScale));
+		float wl = al * waveScale, wr = ar * waveScale;
+		float lift = hapticLiftGain(
+			&s_lift, fabsf(wl) > fabsf(wr) ? fabsf(wl) : fabsf(wr));
+		s_pcmL[s_fill] = hapticUlaw(hapticSoftLimit(wl * lift));
+		s_pcmR[s_fill] = hapticUlaw(hapticSoftLimit(wr * lift));
 		if (++s_fill < hapticPcmFrameLen(s_queued, PCM_RATE_HZ))
 			continue;
 		for (uint8_t b = 0; b < NSLOT; b++)
