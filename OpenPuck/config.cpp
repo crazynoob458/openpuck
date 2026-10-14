@@ -60,9 +60,11 @@ uint8_t g_typeLimitKnee[ET_COUNT] = { HAPTIC_LIMIT_KNEE_DEFAULT,
 				      HAPTIC_LIMIT_KNEE_DEFAULT,
 				      HAPTIC_LIMIT_KNEE_DEFAULT,
 				      HAPTIC_LIMIT_KNEE_DEFAULT };
-// The Switch starts on tones: the wave style's two full-scale bands made it rough at its grip strength
+// Every type starts on wave, the Switch too: its two HD bands play at their own frequencies, left and right apart.
+// It stays smooth with the Switch wave capped at 100% grip strength (past that the grips grind) and the limiter
+// knee at 85.
 static const uint8_t kHapticStyleDefault[ET_COUNT] = {
-	AUDIO_STYLE_WAVE, AUDIO_STYLE_TONE, AUDIO_STYLE_WAVE, AUDIO_STYLE_WAVE
+	AUDIO_STYLE_WAVE, AUDIO_STYLE_WAVE, AUDIO_STYLE_WAVE, AUDIO_STYLE_WAVE
 };
 uint8_t g_typeHapticStyle[ET_COUNT] = { kHapticStyleDefault[0],
 					kHapticStyleDefault[1],

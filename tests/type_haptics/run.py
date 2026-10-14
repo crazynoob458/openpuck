@@ -27,9 +27,9 @@ uint16_t g_rumbleScale = RUMBLE_SCALE_PCT;
 ''' + slice_ + r'''
 int main()
 {
-	// the Switch starts on tones at 100% grip strength; every other type on wave at 200%
+	// every type starts on wave; the Switch at 100% grip strength, the rest at 200%
 	for (int et = 0; et < ET_COUNT; et++) {
-		assert(g_typeHapticStyle[et] == (et == ET_SWITCH ? AUDIO_STYLE_TONE : AUDIO_STYLE_WAVE));
+		assert(g_typeHapticStyle[et] == AUDIO_STYLE_WAVE);
 		assert(g_typeRumbleScale[et] == (et == ET_SWITCH ? 100u : 200u));
 		assert(g_typeRumbleScaleDefault[et] == g_typeRumbleScale[et]);
 		assert(g_typeLimitKnee[et] == 85u);

@@ -19,7 +19,7 @@
   the Switch's row follows its HD Rumble toggle (100% on, 200% off).
 - HD Rumble toggle (Switch tab): off must play the console's rumble as plain motor rumble (the Style in the Rumble card and the
   Switch's Rumble strength apply, the haptics style and limiter grey out), on must go back to HD, and it must survive a reboot.
-- Switch Pro haptics style (Switch tab): tone is the default, at 100% grip strength; wave, split and rumble must each
+- Switch Pro haptics style (Switch tab): wave is the default, at 100% grip strength; wave, split and rumble must each
   play the grips differently, and changing style mid-effect must stop the old style's vibration. Grip strength is
   per type: setting it in Switch mode must not change Xbox's or the DualSense's.
 - DualSense mode on Linux: do the audio haptics play in all four styles (rumble, tone, split, wave)?
