@@ -126,6 +126,30 @@ static inline uint8_t rqNext(uint8_t i)
 // IRQ is dead). The cap turns that into a logged, recovered event instead of a hang. Surfaced on the panel.
 volatile uint16_t g_ringFault = 0;
 volatile uint16_t g_relayDrops = 0;
+PcmDiag g_pcmDiag = {};
+// Reply window after a PCM frame, in us. The controller answers in the ESB ACK, packing queued reports (its 0x44
+// stream events among them) up to 127 bytes: such a reply ends ~800-1000 us after the frame, so a 400 us window
+// cut most of them off and the resends played as duplicate audio. An early reply still ends the wait at once.
+#define PCM_RX_WIN_US 1200u
+static inline bool relayIsPcm(const RelayMsg &m)
+{
+	return m.isHaptic && m.rid == 0x88;
+}
+static void pcmDiagReply(uint8_t attempt, uint8_t rxlen)
+{
+	uint8_t o = !g_rfReplyUs || !g_rfReplyCrcOk ?
+			    0 :
+			    (rxlen ? 3 : 1) + (g_rfReplyUs >= 400u);
+	g_pcmDiag.outcome[attempt][o]++;
+	if (!g_rfReplyUs)
+		return;
+	if (!g_rfReplyCrcOk) {
+		g_pcmDiag.crcBad++;
+		return;
+	}
+	uint16_t b = g_rfReplyUs / 200u;
+	g_pcmDiag.replyUs[b > 15 ? 15 : b]++;
+}
 
 bool relayPending()
 {
@@ -158,6 +182,8 @@ bool relayEnqueue(uint8_t rid, const uint8_t *payload, uint8_t plen,
 			continue;
 		uint8_t h = g_rqHead[s], nx = rqNext(h);
 		if (nx == g_rqTail[s]) {
+			if (relayIsPcm(g_rq[s][g_rqTail[s]]))
+				g_pcmDiag.evicted++;
 			g_rqTail[s] = rqNext(g_rqTail[s]);
 			g_relayDrops++;
 		}
@@ -189,6 +215,8 @@ bool relayEnqueueFront(uint8_t rid, const uint8_t *payload, uint8_t plen,
 	if (rqNext(g_rqHead[slot]) == g_rqTail[slot]) {
 		g_rqHead[slot] = (uint8_t)((g_rqHead[slot] + RELAY_QLEN - 1) %
 					   RELAY_QLEN);
+		if (relayIsPcm(g_rq[slot][g_rqHead[slot]]))
+			g_pcmDiag.evicted++;
 		g_relayDrops++;
 	}
 	uint8_t t = (uint8_t)((g_rqTail[slot] + RELAY_QLEN - 1) % RELAY_QLEN);
@@ -212,6 +240,8 @@ static void relayRequeue(uint8_t slot, const RelayMsg &m)
 	if (rqNext(g_rqHead[slot]) == g_rqTail[slot]) {
 		g_rqHead[slot] = (uint8_t)((g_rqHead[slot] + RELAY_QLEN - 1) %
 					   RELAY_QLEN);
+		if (relayIsPcm(g_rq[slot][g_rqHead[slot]]))
+			g_pcmDiag.evicted++;
 		g_relayDrops++;
 	}
 	uint8_t t = (uint8_t)((g_rqTail[slot] + RELAY_QLEN - 1) % RELAY_QLEN);
@@ -757,10 +787,15 @@ static uint16_t hdClampHz(uint16_t hz)
 
 // Grip renderer: each grip plays its side's low + high band summed, phase-continuous, at PCM_RATE_HZ on a
 // micros() sample clock. The stream stays up through silent gaps of HD_PCM_HANG_MS so a new effect doesn't pay
-// the controller's ~40 ms pre-buffer again; 0x86 re-states the format every second (it survives, but a
-// power-cycled controller comes back without it).
+// the controller's ~40 ms pre-buffer again. 0x86 is sent once per stream: re-sending it mid-stream made the
+// controller stutter once a second.
 // one full band at 100% grip strength; two full bands reach full scale
 #define HD_PCM_GAIN 0.5f
+// Samples a stream starts ahead of the clock, generated at once from the current bands. The controller starts
+// playing once it holds more than 16 ms, so an effect starts ~15.5 ms sooner; the fill it then keeps (96
+// samples with the short third frame) is the same either way. At most 2 * PCM_SAMPLES: the stall skip-ahead
+// clamps beyond it.
+#define HD_PCM_LEAD (2u * PCM_SAMPLES)
 #define HD_PCM_HANG_MS 500u
 // The grips can still be sounding this long after the last loud sample: ~40 ms pre-buffer plus 60-85 ms of
 // play-out once frames stop (PROTOCOL.md section 9.1). Past it there is nothing for op 1 to trim.
@@ -768,7 +803,7 @@ static uint16_t hdClampHz(uint16_t hz)
 struct HdPcmState {
 	float phase[4];
 	uint32_t clockUs;
-	unsigned long fmtMs, activeMs;
+	unsigned long activeMs;
 	uint8_t fill;
 	uint16_t queued;
 	bool on;
@@ -793,25 +828,30 @@ static void hdPcmRun(uint8_t slot, const uint16_t bands[4],
 		     const uint16_t frequencies[4], unsigned long nowMs)
 {
 	HdPcmState &p = g_hdPcmState[slot];
+	// a controller that drops its link comes back without the format: restart the stream when it returns
+	if (!hapticLinkUp(slot)) {
+		p.on = false;
+		return;
+	}
 	uint32_t nowUs = micros();
+	const uint32_t usPerSample = 1000000u / PCM_RATE_HZ;
 	if (!p.on) {
 		hapticPcmStart(slot);
 		p = {};
 		p.on = true;
-		p.clockUs = nowUs;
-		p.fmtMs = p.activeMs = nowMs;
-	} else if (nowMs - p.fmtMs >= 1000u) {
-		hapticPcmStart(slot);
-		p.fmtMs = nowMs;
+		p.clockUs = nowUs - HD_PCM_LEAD * usPerSample;
+		p.activeMs = nowMs;
 	}
-	const uint32_t usPerSample = 1000000u / PCM_RATE_HZ;
 	uint32_t due = (nowUs - p.clockUs) / usPerSample;
 	// after a stall, skip ahead rather than burst a backlog
 	if (due > 2 * PCM_SAMPLES) {
 		p.clockUs = nowUs - 2 * PCM_SAMPLES * usPerSample;
 		due = 2 * PCM_SAMPLES;
 	}
-	float gain = HD_PCM_GAIN * g_rumbleScale / (100.0f * 65535.0f);
+	// Past 100% grip strength the grips run out of travel and grind (IMU-measured), and the limiter can only
+	// square the wave off against full scale: more strength stays with the tone and rumble styles.
+	uint16_t scale = g_rumbleScale > 100 ? 100 : g_rumbleScale;
+	float gain = HD_PCM_GAIN * scale / (100.0f * 65535.0f);
 	float step[4];
 	for (uint8_t k = 0; k < 4; k++) {
 		uint16_t hz = frequencies[k] < 40   ? 40 :
@@ -872,11 +912,44 @@ static void hdStop(uint8_t slot)
 		  millis() - g_hdPcmState[slot].activeMs < HD_PCM_TAIL_MS);
 }
 
+// Pan test (op 0x36): a tone panned with equal power, so it should feel equally strong wherever it is. Feeds
+// the HD path like a host would, so it needs Switch Pro mode with HD rumble; elsewhere it does nothing.
+#define HD_PAN_TEST_MS 4000u
+#define HD_PAN_PERIOD_MS 2000u
+static unsigned long g_hdPanStart;
+static bool g_hdPanOn;
+
+void hapticTestHdPan()
+{
+	g_hdPanStart = millis();
+	g_hdPanOn = true;
+}
+
+static void hdPanTestTask()
+{
+	if (!g_hdPanOn)
+		return;
+	unsigned long t = millis() - g_hdPanStart;
+	bool run = t < HD_PAN_TEST_MS && g_usbMode == MODE_SW_PRO && g_switchHd;
+	// starts on the left, right at half a period, back left at a whole one
+	float pos = 0.5f - 0.5f * cosf(6.2831853f * t / HD_PAN_PERIOD_MS);
+	uint16_t l =
+		run ? (uint16_t)(RUMBLE_TEST_AMP * cosf(pos * 1.5707963f)) : 0;
+	uint16_t r =
+		run ? (uint16_t)(RUMBLE_TEST_AMP * sinf(pos * 1.5707963f)) : 0;
+	for (uint8_t s = 0; s < NSLOT; s++)
+		if (hapticLinkUp(s))
+			hapticSwitchHd(s, l, l, r, r);
+	if (!run)
+		g_hdPanOn = false;
+}
+
 // The Switch's haptic style (AUDIO_STYLE_*) sets how its grips play the two bands: wave streams them as PCM, tone
 // plays each side's stronger band as a tone, split plays the low band as 0x80 rumble and the high band as a tone,
 // rumble plays the stronger band as 0x80 rumble. The pads always play the high band as tones.
 static void hapticHdTask()
 {
+	hdPanTestTask();
 	unsigned long now = millis();
 	for (uint8_t slot = 0; slot < NSLOT; slot++) {
 		uint32_t pm = __get_PRIMASK();
@@ -1013,6 +1086,7 @@ bool hapticPcmSend(uint8_t slot, const uint8_t *left, const uint8_t *right,
 	p[0] = n;
 	memcpy(p + 1, left, PCM_SAMPLES);
 	memcpy(p + 1 + PCM_SAMPLES, right, PCM_SAMPLES);
+	g_pcmDiag.made++;
 	return relayEnqueue(0x88, p, sizeof p, true, slot);
 }
 
@@ -1150,13 +1224,37 @@ bool rfConnFlushRelay(uint8_t ch, uint8_t s1, bool *requeued)
 			// full F1 decode (seq-dedup guards double-forward), so a drag streaming haptics now collects
 			// ~2x the samples, closing the gap to the real puck. A present reply returns early (~90us);
 			// only a genuine no-reply pays the bounded 400us window, so airtime stays in budget.
-			uint8_t rx = rfConnTx(ch, s1, p, plen,
-					      400); // reply harvested as input
 			// PCM mode/sample streams (0x86-0x89) underrun audibly when a frame is lost. Resend an
 			// unanswered one once with the SAME PID: ESB dedup drops it if the first copy landed.
 			bool pcm = m.isHaptic && m.rid >= 0x86 && m.rid <= 0x89;
-			if (!rx && pcm)
-				rx = rfConnTx(ch, s1, p, plen, 400);
+			uint16_t win = pcm ? PCM_RX_WIN_US : 400;
+			uint8_t rx = rfConnTx(ch, s1, p, plen,
+					      win); // reply harvested as input
+			if (relayIsPcm(m)) {
+				g_pcmDiag.sent++;
+				pcmDiagReply(m.tries ? 2 : 0, rx);
+			}
+			// The controller answers a PCM frame with an empty ACK within ~200 us: no input to harvest, so
+			// rfConnTx returns 0, but the frame landed. Resending it then plays it twice.
+			if (pcm && !rx && g_rfReplyUs && g_rfReplyCrcOk)
+				rx = 1;
+			if (!rx && pcm) {
+				rx = rfConnTx(ch, s1, p, plen, win);
+				if (relayIsPcm(m)) {
+					g_pcmDiag.sent++;
+					pcmDiagReply(m.tries ? 2 : 1, rx);
+				}
+				if (!rx && g_rfReplyUs && g_rfReplyCrcOk)
+					rx = 1;
+			}
+			if (relayIsPcm(m)) {
+				if (rx)
+					g_pcmDiag.acked++;
+				else if (m.tries < PCM_RELAY_RETRIES)
+					g_pcmDiag.requeued++;
+				else
+					g_pcmDiag.lost++;
+			}
 			// Still unanswered: retry on the next cycles. A stream keeps a fixed fill once it starts, so a
 			// lost frame takes its samples out of that cushion for good, and two or three run it dry. If
 			// only the ACK was lost, the retry lands a duplicate: ~8 ms of extra fill until the stream

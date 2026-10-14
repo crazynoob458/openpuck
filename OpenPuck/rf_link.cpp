@@ -3324,6 +3324,8 @@ bool rfRecoveryRequestHop(uint8_t channel)
 // no reply, so they don't burn a full ~1.2ms window of dead air per haptic. Per-slot: the connected poll runs
 // on this slot's UNIQUE session address (one address per bonded controller); replies are demuxed by which
 // address the controller answers on (each controller only hears its own).
+uint16_t g_rfReplyUs = 0;
+bool g_rfReplyCrcOk = false;
 uint8_t rfConnTx(uint8_t ch, uint8_t s1, const uint8_t *payload, uint8_t plen,
 		 uint16_t rxWinUs)
 {
@@ -3339,28 +3341,46 @@ uint8_t rfConnTx(uint8_t ch, uint8_t s1, const uint8_t *payload, uint8_t plen,
 	int slot = (g_curSlot >= 0 && g_curSlot < NSLOT) ? g_curSlot : 0;
 	rfSetAddr(g_sessBase[slot], g_sessPrefix[slot]);
 	NRF_RADIO->PACKETPTR = (uint32_t)rftx;
+	NRF_RADIO->EVENTS_ADDRESS = 0;
+	NRF_RADIO->EVENTS_END = 0;
+	NRF_RADIO->EVENTS_DISABLED = 0;
+	NRF_RADIO->EVENTS_CRCOK = 0;
+	NRF_RADIO->EVENTS_CRCERROR = 0;
+	// The radio turns around into RX by itself (DISABLED->RXEN): the controller's ACK follows ~130 us after the
+	// frame, and a task that preempted the loop between TX end and a software RXEN (the DualSense mode's USB
+	// audio processing) made it miss most replies. PACKETPTR is read at START, so rfrx goes in once TX has
+	// started; interrupts are off only for the ramp-up, preamble and address (~70 us).
 	NRF_RADIO->SHORTS = RADIO_SHORTS_READY_START_Msk |
-			    RADIO_SHORTS_END_DISABLE_Msk;
-	NRF_RADIO->EVENTS_DISABLED = 0;
+			    RADIO_SHORTS_END_DISABLE_Msk |
+			    RADIO_SHORTS_DISABLED_RXEN_Msk;
+	uint32_t pm = __get_PRIMASK();
+	__disable_irq();
 	NRF_RADIO->TASKS_TXEN = 1;
-	RWAIT_DISABLED();
-	NRF_RADIO->EVENTS_DISABLED = 0;
+	for (uint32_t i = 0; !NRF_RADIO->EVENTS_ADDRESS && i < 20000; i++) {
+	}
 	NRF_RADIO->PACKETPTR = (uint32_t)rfrx;
 	rfrx[0] = 0;
-	// RXEN->READY->START; catch the reply. ADDRESS->RSSISTART samples the reply's signal strength (read from
-	// RSSISAMPLE below, surfaced to Steam via report 0x7B); DISABLED->RSSISTOP closes the measurement.
+	__set_PRIMASK(pm);
+	RWAIT_DISABLED();
+	// Receiving now. The reply then stays in RXIDLE for the disable below; ADDRESS->RSSISTART samples its
+	// signal strength (read from RSSISAMPLE below, surfaced to Steam via report 0x7B) and DISABLED->RSSISTOP
+	// closes the measurement. Only a received packet raises CRCOK/CRCERROR, so the frame's own END can't pass
+	// for a reply.
 	NRF_RADIO->SHORTS = RADIO_SHORTS_READY_START_Msk |
 			    RADIO_SHORTS_ADDRESS_RSSISTART_Msk |
 			    RADIO_SHORTS_DISABLED_RSSISTOP_Msk;
-	NRF_RADIO->EVENTS_END = 0;
-	NRF_RADIO->TASKS_RXEN = 1;
+	NRF_RADIO->EVENTS_DISABLED = 0;
 	uint32_t t0 = micros();
-	while (!NRF_RADIO->EVENTS_END && (micros() - t0) < win) {
+	while (!NRF_RADIO->EVENTS_CRCOK && !NRF_RADIO->EVENTS_CRCERROR &&
+	       (micros() - t0) < win) {
 	} // RX window (tunable 'r'; or relay override)
 	uint8_t rxlen = 0;
-	if (NRF_RADIO->EVENTS_END) {
+	g_rfReplyUs = 0;
+	if (NRF_RADIO->EVENTS_CRCOK || NRF_RADIO->EVENTS_CRCERROR) {
 		NRF_RADIO->EVENTS_END = 0;
 		bool crcok = NRF_RADIO->CRCSTATUS & 1;
+		g_rfReplyUs = (uint16_t)(micros() - t0) | 1;
+		g_rfReplyCrcOk = crcok;
 		rxlen = rfrx[0];
 		// reply arrived but CRC failed -> RF quality (channel/interference)
 		if (!crcok) {
@@ -3792,6 +3812,10 @@ uint8_t rfConnTx(uint8_t ch, uint8_t s1, const uint8_t *payload, uint8_t plen,
 							g_battery[g_curSlot] =
 								rep[2];
 						}
+						// 0x44 [channel][event]: PCM stream events (PROTOCOL.md section 9.1)
+						if (rep[0] == 0x44 && tlen >= 3)
+							g_pcmDiag.events[rep[2] &
+									 15]++;
 						if (g_active)
 							g_active->onAuxReport(
 								g_curSlot,

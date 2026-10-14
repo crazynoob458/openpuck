@@ -535,15 +535,15 @@ static void toneUpdate(ToneSide *t, uint8_t side, uint16_t env, uint16_t ref,
 }
 
 // Wave style grip stream: stream while the haptic channels are above the gate and for WAVE_HANG_MS after, so a
-// short pause does not pay the controller's pre-buffer again. The format is re-sent every WAVE_FMT_MS: it
-// persists on the controller, but one that power-cycled mid-stream comes back without it.
+// short pause does not pay the controller's pre-buffer again. The format goes out once per stream: re-sending it
+// mid-stream made the controller stutter once a second. A controller whose link drops comes back without it, so
+// its slot leaves the stream and rejoins with a fresh format.
 #define WAVE_HANG_MS 300u
-#define WAVE_FMT_MS 1000u
 
 static void waveUpdate(bool active, float waveScale, uint32_t now)
 {
 	static bool s_on = false;
-	static uint32_t s_lastActive = 0, s_fmtMs[NSLOT] = {};
+	static uint32_t s_lastActive = 0;
 	if (active) {
 		s_on = true;
 		s_lastActive = now;
@@ -553,20 +553,15 @@ static void waveUpdate(bool active, float waveScale, uint32_t now)
 	uint8_t mask = 0;
 	for (uint8_t u = 0; s_on && u < g_usbMountCount; u++) {
 		int bond = audioBond(u);
-		if (bond >= 0)
+		if (bond >= 0 && hapticLinkUp(bond))
 			mask |= (uint8_t)(1u << bond);
 	}
-	for (uint8_t b = 0; b < NSLOT; b++) {
-		if (!(mask & (1u << b)))
-			continue;
-		if (!(s_waveMask & (1u << b)) ||
-		    now - s_fmtMs[b] >= WAVE_FMT_MS) {
+	for (uint8_t b = 0; b < NSLOT; b++)
+		if ((mask & (1u << b)) && !(s_waveMask & (1u << b)))
 			hapticPcmStart(b);
-			s_fmtMs[b] = now;
-		}
-	}
 	s_waveScale = waveScale;
 	s_waveMask = mask;
+	g_pcmDiag.waveMask = mask;
 }
 
 void ps5AudioTask(void)
@@ -603,6 +598,7 @@ void ps5AudioTask(void)
 	uint16_t gate = (tone || wave) ? TONE_GATE : HAPTIC_GATE;
 	uint16_t envL = hapticEnvelope(hapticLevel(sqL, frames), &s_envL, gate);
 	uint16_t envR = hapticEnvelope(hapticLevel(sqR, frames), &s_envR, gate);
+	g_pcmDiag.audioEnvL = envL;
 	// Split style: below SPLIT_HZ drives the rumble, the rest the tones, each with that output's gate.
 	uint16_t loL = hapticEnvelope(hapticLevel(sqLoL, frames), &s_envLoL,
 				      HAPTIC_GATE);
@@ -627,11 +623,14 @@ void ps5AudioTask(void)
 	uint16_t rumR = (tone || wave) ? 0 : split ? loR : envR;
 	// wave plays the haptic channels as sent, like a real DualSense, so it skips the auto gain. 100% (and Auto)
 	// is 40% of full scale: half matched a real pad in FFXIV, but felt too strong across other games (2026-10-05).
+	// Past 250% a full-scale track overdrives the grips (IMU: they flatten above ~0.7 and clip past full scale),
+	// so more gain stays with the tone and rumble styles.
+	uint16_t waveGain = g_audioHapticGain ? g_audioHapticGain : 100;
+	if (waveGain > 250)
+		waveGain = 250;
 	waveUpdate(wave && (envL || envR),
-		   (wave && g_audioHaptics) ?
-			   (g_audioHapticGain ? g_audioHapticGain : 100) /
-				   (250.0f * 32768.0f) :
-			   0.0f,
+		   (wave && g_audioHaptics) ? waveGain / (250.0f * 32768.0f) :
+					      0.0f,
 		   now);
 
 	// A style that stops using an output stops whatever it left playing (a tone cuts once; a rumble stops below).
@@ -731,6 +730,7 @@ static bool uac1_control_xfer_cb(uint8_t rhport, uint8_t stage,
 		uint8_t alt = tu_u16_low(request->wValue);
 		if (itf == g_uac1ItfAs) {
 			g_uac1AltSetting = alt;
+			g_pcmDiag.audioAlt = alt;
 			if (alt == 1) {
 				usbd_edpt_xfer(rhport, g_uac1EpOut, g_isoOutBuf,
 					       UAC1_ISO_EP_BUFSIZE);
@@ -810,6 +810,7 @@ static bool uac1_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result,
 			 uint32_t xferred_bytes)
 {
 	if (ep_addr == g_uac1EpOut && result == XFER_RESULT_SUCCESS) {
+		g_pcmDiag.audioPkts++;
 		if (xferred_bytes > 0 && g_uac1AltSetting == 1)
 			processAudioSamples(g_isoOutBuf, xferred_bytes);
 		if (g_uac1AltSetting == 1)

@@ -218,10 +218,12 @@ extern uint16_t g_audioHapticGain;
 // the haptic channels themselves, streamed to the grip actuators as 4 kHz PCM (0x88)
 #define AUDIO_STYLE_WAVE 3
 extern uint8_t g_audioHapticStyle;
-// Grip PCM soft-limit knee (DualSense wave style, Switch Pro HD grips), percent of full scale: 50..100, 70 default.
+// Grip PCM soft-limit knee (DualSense wave style, Switch Pro HD grips), percent of full scale: 50..100, 85 default.
 // Peaks above it are rounded off toward full scale; 100 leaves only the hard clip at full scale. Each emulated type
 // keeps its own (g_typeLimitKnee); g_hapticLimitKnee is the active type's live copy (applyActiveType).
-#define HAPTIC_LIMIT_KNEE_DEFAULT 70u
+// Measured on the controller's IMU (Switch HD and DualSense wave), the grips stay linear to ~0.7 of full scale
+// and ease off toward it: a knee of 85 costs no measurable strength, 70 loses 3-5% near the top
+#define HAPTIC_LIMIT_KNEE_DEFAULT 85u
 extern uint8_t g_hapticLimitKnee;
 extern uint8_t g_typeLimitKnee[ET_COUNT];
 // Haptic style per emulated type (AUDIO_STYLE_*): how the DualSense (ET_DS5) plays its audio haptics and how the

@@ -62,6 +62,8 @@ extern uint16_t g_hdPadScale;
 #define RUMBLE_TEST_AMP 0x8000u
 #define RUMBLE_TEST_MS 500u
 void hapticTestRumble();
+// Switch Pro HD test: a 160 + 320 Hz tone panned left-right-left twice, through the haptic style in use
+void hapticTestHdPan();
 
 // Journal-builder progress tick. It is deliberately short and is emitted only
 // between measured channels, never inside a quality window. Hardware testing
@@ -252,6 +254,26 @@ bool rfConnFlushRelay(uint8_t ch, uint8_t s1, bool *requeued = nullptr);
 extern volatile uint16_t g_ringFault;
 // relay entries evicted unsent because a slot's ring was full (serial "# stat" drop=)
 extern volatile uint16_t g_relayDrops;
+// Grip PCM stream counters since boot, read with WebUSB op 0x35 (0xB1 frame). A frame is made once, sent one or
+// more times, and ends acked, lost (unanswered after every retry) or evicted (pushed out of a full ring unsent).
+// events[] counts the controller's 0x44 stream events by id; 0x02 = ran dry.
+// replyUs[] buckets each reply to a 0x88 frame by its delay after the frame, 200 us per bucket (15 = 3 ms and
+// later); crcBad counts replies that arrived corrupt.
+struct PcmDiag {
+	uint32_t made, sent, acked, requeued, lost, evicted;
+	uint16_t events[16];
+	uint16_t replyUs[16];
+	uint16_t crcBad;
+	// outcome[attempt][reply]: attempt 0 first send, 1 same-cycle resend, 2 later-cycle retry; reply 0 none,
+	// 1 empty within 400 us, 2 empty later, 3 with data within 400 us, 4 with data later
+	uint16_t outcome[3][5];
+	// DualSense audio: USB audio packets received, the streaming interface's alt setting, the slots the grip
+	// stream sends to, and the left haptic channel's level after the gate
+	uint32_t audioPkts;
+	uint8_t audioAlt, waveMask;
+	uint16_t audioEnvL;
+};
+extern PcmDiag g_pcmDiag;
 
 // boot reset: clear relay/active flags, arm the reconnect block
 void hapticInit();

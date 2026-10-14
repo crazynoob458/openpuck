@@ -368,7 +368,9 @@ Actuator routing: the controller has four LRAs, one under each trackpad and a hi
 
 PCM streaming, measured with the controller's IMU over USB (2026-10-03):
 - `0x86` sets the sample format, and the format persists. Op 1 does not stop playback, and channel 5 measured the
-  same as channel 2. OpenPuck sends `{2, 2, 9}` (4 kHz u-law) before each stream and every second while streaming.
+  same as channel 2. OpenPuck sends `{2, 2, 9}` (4 kHz u-law) once at the start of each stream. Re-sending it
+  mid-stream made the grips stutter about once a second (2026-10-12). A controller whose link drops comes back
+  without the format, so OpenPuck restarts that controller's stream, with a fresh `0x86`, once it returns.
 - The controller pre-buffers about 40 ms (onset ~43 ms against ~16 ms for a `0x83` tone). It rides out 124 ms bursts
   and 0-20 ms jitter without a dip, and falls silent by itself 60-85 ms later than a tone once frames stop
   (op 1 at the stop trims that to about 50 ms). The playback clock does not drift against 4 kHz pacing. `0x82`
@@ -379,10 +381,31 @@ PCM streaming, measured with the controller's IMU over USB (2026-10-03):
   96 (24 ms). Measured through OpenPuck in Steam mode (20 runs each, 2026-10-04): IMU onset median 61 ms with full
   frames, 54 ms with the short third frame.
 - Level: a u-law sample amplitude of about 0.4 (0.31 at 100 Hz, 0.49 at 320 Hz) matches a -3 dB `0x83` tone.
+- Grip linearity, measured with the controller resting on a table (2026-10-12): vibration rises in proportion to
+  the sample amplitude up to about 0.7 of full scale, eases off toward full scale, and clips past it. Driving
+  about twice full scale (two full bands at 200% grip strength) makes the grips audibly grind. OpenPuck therefore
+  caps the Switch wave style at 100% grip strength and the DualSense wave style at 250% haptic gain. A soft-limit
+  knee of 85 costs no measurable strength, while 70 costs 3-5% near the top; two blind A/B tests (steady and
+  swept) found no audible difference, with 85 preferred.
 - An 8 kHz stereo stream is 258 frames/s, above one relay per 4 ms poll. OpenPuck flushes a second queued relay in
   the same cycle when the ring holds a backlog, and resends an unanswered `0x86`-`0x89` frame once with the same PID.
   A frame still unanswered goes back to the front of the ring for up to two later cycles: a lost frame would take its
-  samples out of the stream's fill for good, and two or three losses run it dry.
+  samples out of the stream's fill for good, and two or three losses run it dry. A retry on a later cycle carries
+  a new PID, so if the first copy did land, the controller plays the frame twice.
+- **Replies to PCM frames** (measured with the `0x35` counters, 2026-10-12). The controller answers every packet in
+  its ESB ACK. The ACK is empty when the controller has nothing queued and ends within ~200 us; otherwise it carries
+  an `F1` packed with queued reports (its `0x44` stream events among them) up to 127 bytes, ending ~800-1000 us after
+  the frame. Either kind, with a good CRC, means the frame arrived. OpenPuck waits up to 1200 us after a PCM frame
+  and counts an empty ACK as delivered. With the old 400 us window and only replies with data counted, about 80% of
+  frames were resent and many played twice; the controller then sent `0x44` events `0x08` and `0x01` by the
+  thousand. Both vanish once nothing is duplicated, so they are probably "buffer high" and "frame dropped" (not
+  confirmed in its firmware). `0x00` arrives once per grip at each stream start (format accepted).
+- **TX to RX turnaround in hardware.** The controller's ACK follows ~130 us after a frame. In DualSense mode the
+  USB audio processing runs in the TinyUSB task, above the main loop, and when it preempted the loop between the end
+  of TX and a software RXEN, 83% of PCM frames got no reply. The radio now switches to RX by itself
+  (`DISABLED` -> `RXEN` shortcut), the RX buffer goes in once TX has started (`PACKETPTR` is read at `START`), and a
+  reply is detected by `CRCOK`/`CRCERROR`, which only a received packet raises. Afterwards: 1% unanswered, 250
+  polls/s (207 before).
 - A stream that has gone silent is left to run dry. A `0x86` op 1 or a `-128 dB` `0x83` cut sent to an idle actuator
   plays as a click, so OpenPuck sends them only while something may still be playing.
 
@@ -518,6 +541,11 @@ Messages:
   - `0x12 <idx> <16-byte binding>`: set one lizard binding (see below)
   - `0x14`: commit the edited lizard map to flash (device echoes `0xAA`)
   - `0x15`: reset the lizard map to built-in defaults (device echoes `0xAA`)
+  - `0x35`: grip PCM stream counters since boot, replying with an `0xB1` frame (debug). No status-blob
+    version gates it: older firmware ignores the op.
+  - `0x36`: Switch Pro HD pan test. A 160 + 320 Hz tone panned left-right-left on a 2 s cycle for 4 s,
+    through the HD path and the Switch haptic style. Does nothing outside Switch Pro mode with HD rumble.
+    Older firmware ignores the op. No reply.
   - `0x20`–`0x24`: staged firmware update (begin/data/end/reboot/abort), acked with `0xAB` frames
   - `0x25 0x57 0x49 0x50 0x45`: **full board wipe** (`"WIPE"` magic, debug panel only). Erases the app
     region + LittleFS (settings + bonds) + bootloader-settings page and reboots app-less, so the board mounts
@@ -530,6 +558,17 @@ Messages:
   - `0xA9 ...`: live wedge report
   - `0xAA <count> <count×16-byte bindings>`: lizard binding map
   - `0xAB 5 <status> <nextOff u32 LE>`: firmware-update ack
+  - `0xB1 134 <payload>`: grip PCM stream counters, answering `0x35`: `[ver=1]`, then `made sent acked requeued
+    lost evicted` (u32 LE): `0x88` frames built, transmissions (an immediate resend counts again), frames
+    answered, put back for a later cycle, unanswered after every retry, and pushed out of a full relay ring
+    unsent. Then the controller's `0x44` stream events by id `0..15` (u16 LE; `0x02` = ran dry), polls/s and
+    relays/s (u16 LE), the Switch HD wave rate in kHz (4), the replies to
+    `0x88` frames bucketed by delay after the frame, 200 us per bucket with bucket 15 for 3 ms and later (16 ×
+    u16 LE), the count of replies that arrived with a bad CRC (u16 LE), and the replies by attempt (first send,
+    same-cycle resend, later-cycle retry) and kind (none, empty within 400 us, empty later, with data within
+    400 us, with data later), 3 × 5 u16 LE. Then DualSense audio: USB audio packets received (u32 LE), the
+    streaming interface's alt setting, the slots the grip stream sends to (bit per slot), and the left haptic
+    channel's level after the gate (u16 LE).
 
 Lizard binding wire format (16 bytes), matching `LizardBinding` in `lizard_map.h`:
 

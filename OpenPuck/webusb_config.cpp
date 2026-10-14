@@ -50,6 +50,8 @@ static volatile bool g_blobRequest = false;
 // browser can save them to a file and restore them onto a second puck. Like the status blob, the actual send
 // is deferred to the usbd task (webusbSofDrain) so usb_web.write()/flush() never block loop().
 static volatile bool g_bondExportRequest = false;
+// Grip PCM stream counters (op 0x35 -> one 0xB1 frame), a debug read
+static volatile bool g_pcmDiagRequest = false;
 // Firmware-update ack ([0xAB][5][status][nextOff u32 LE]). Like the blob it is written from the usbd task
 // (webusbSofDrain), but unlike the blob it is NEVER dropped -- the panel's transfer flow-control is strict
 // ping-pong on these acks, so an unsent ack just stays pending until the FIFO has room (the panel is
@@ -594,6 +596,48 @@ static bool webusbSendRfStatus()
 	return true;
 }
 
+// 0x35: grip PCM stream counters since boot (g_pcmDiag), written from the usbd task like the blob:
+//   [0xB1][134][ver=1][made sent acked requeued lost evicted: u32 LE][0x44 events 0..15: u16 LE]
+//   [polls/s: u16 LE][relays/s: u16 LE][Switch HD wave rate, kHz: 4][reply delay buckets 0..15: u16 LE]
+//   [corrupt replies: u16 LE][outcome[attempt 0..2][reply 0..4]: u16 LE, see PcmDiag]
+//   [audio packets u32][audio alt u8][DualSense stream slots u8][left haptic level u16]
+static void webusbSendPcmDiag()
+{
+	static uint8_t f[2 + 134];
+	uint8_t *p = f + 3;
+	auto put = [&](uint32_t v, uint8_t n) {
+		for (uint8_t i = 0; i < n; i++)
+			*p++ = (uint8_t)(v >> (8 * i));
+	};
+	f[0] = 0xB1;
+	f[1] = 134;
+	f[2] = 1;
+	const PcmDiag d = g_pcmDiag;
+	const uint32_t c[6] = { d.made,	    d.sent, d.acked,
+				d.requeued, d.lost, d.evicted };
+	for (uint8_t i = 0; i < 6; i++)
+		put(c[i], 4);
+	for (uint8_t i = 0; i < 16; i++)
+		put(d.events[i], 2);
+	put(g_pollsps, 2);
+	put(g_relayps, 2);
+	put(4, 1);
+	for (uint8_t i = 0; i < 16; i++)
+		put(d.replyUs[i], 2);
+	put(d.crcBad, 2);
+	for (uint8_t a = 0; a < 3; a++)
+		for (uint8_t o = 0; o < 5; o++)
+			put(d.outcome[a][o], 2);
+	put(d.audioPkts, 4);
+	put(d.audioAlt, 1);
+	put(d.waveMask, 1);
+	put(d.audioEnvL, 2);
+	if (tud_vendor_write_available() >= sizeof f) {
+		usb_web.write(f, sizeof f);
+		usb_web.flush();
+	}
+}
+
 static void webusbSofDrain(void)
 {
 	// If loop() has stopped beating, it's wedged -- keep pushing the blob (which carries the live stuck stage)
@@ -622,6 +666,10 @@ static void webusbSofDrain(void)
 	if (g_bondExportRequest) {
 		g_bondExportRequest = false;
 		webusbSendBondExport();
+	}
+	if (g_pcmDiagRequest) {
+		g_pcmDiagRequest = false;
+		webusbSendPcmDiag();
 	}
 	if (g_rfStatusRequest && webusbSendRfStatus())
 		g_rfStatusRequest = false;
@@ -832,10 +880,11 @@ void webusbPoll()
 			if (n == 0)
 				break;
 			uint8_t op = buf[0];
-			// 0x16 = test rumble (v21); extend this range whenever a new opcode is added, or the
-			// parser drops it as garbage and the handler below never runs.
+			// 0x16 = test rumble (v21), 0x35 = PCM counters, 0x36 = HD pan test; extend these ranges whenever
+			// a new opcode is added, or the parser drops it as garbage and the handler below never runs.
 			if ((op < 0x01 || op > 0x1A) &&
-			    (op < 0x20 || op > 0x25)) { // resync: drop one byte
+			    (op < 0x20 || op > 0x25) && op != 0x35 &&
+			    op != 0x36) { // resync: drop one byte
 				memmove(buf, buf + 1, --n);
 				continue;
 			}
@@ -915,6 +964,10 @@ void webusbPoll()
 			// rumble test buzz: exercises the current style/strength (protocol v21)
 			else if (op == 0x16) {
 				hapticTestRumble();
+			} else if (op == 0x35) {
+				g_pcmDiagRequest = true;
+			} else if (op == 0x36) {
+				hapticTestHdPan();
 			}
 
 			// trigger controller power-off (same path Steam 0x9F / host-suspend use)

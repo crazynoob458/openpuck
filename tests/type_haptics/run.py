@@ -11,7 +11,7 @@ test = r'''#include <cassert>
 #define ET_SWITCH 1
 #define ET_DS4 2
 #define ET_DS5 3
-#define HAPTIC_LIMIT_KNEE_DEFAULT 70u
+#define HAPTIC_LIMIT_KNEE_DEFAULT 85u
 #define RUMBLE_SCALE_PCT 200u
 #define RUMBLE_SCALE_MIN 10u
 #define RUMBLE_SCALE_MAX 500u
@@ -32,7 +32,7 @@ int main()
 		assert(g_typeHapticStyle[et] == (et == ET_SWITCH ? AUDIO_STYLE_TONE : AUDIO_STYLE_WAVE));
 		assert(g_typeRumbleScale[et] == (et == ET_SWITCH ? 100u : 200u));
 		assert(g_typeRumbleScaleDefault[et] == g_typeRumbleScale[et]);
-		assert(g_typeLimitKnee[et] == 70u);
+		assert(g_typeLimitKnee[et] == 85u);
 	}
 	// an edit to the live strength lands on the active type only
 	g_etype = ET_SWITCH;
