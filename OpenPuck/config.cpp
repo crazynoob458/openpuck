@@ -73,7 +73,7 @@ uint8_t g_typeHapticStyle[ET_COUNT] = { kHapticStyleDefault[0],
 uint8_t g_hapticLift = HAPTIC_LIFT_DEFAULT;
 uint8_t g_typeHapticLift[ET_COUNT] = { HAPTIC_LIFT_DEFAULT, HAPTIC_LIFT_DEFAULT,
 				       HAPTIC_LIFT_DEFAULT,
-				       HAPTIC_LIFT_DEFAULT };
+				       HAPTIC_LIFT_DS5_DEFAULT };
 // 200% drove the Switch's tones to their full level, which felt rough, so it starts at 100%
 const uint16_t g_typeRumbleScaleDefault[ET_COUNT] = { RUMBLE_SCALE_PCT, 100u,
 						      RUMBLE_SCALE_PCT,
@@ -188,12 +188,12 @@ struct Cfg {
 	// pre-tail file) -> compiled default (on)
 	uint8_t suspendOff;
 	uint8_t ext[CFG_EXT_STORAGE_BYTES];
-	// DualSense audio haptic gain pct/2 (10..500%); 0 = auto
+	// DualSense haptic gain, 0..100% of the style's strongest; 0 = auto
 	uint8_t audioGain2;
 	// DualSense audio-driven haptics enable. 0/1; 0xFF (short pre-tail file) -> compiled default (on)
 	uint8_t audioHaptics;
-	// 1 = audioGain2 was saved by a build that has this field. Anything else (0xFF: an older file) drops the saved
-	// gain to auto once; the field was added while the drive was linear.
+	// 2 = audioGain2 holds the 0..100% scale. Anything else (1: the old pct/2 of 10..500%, 0xFF: no field) drops
+	// the saved gain to auto once.
 	uint8_t audioGainLinear;
 	// AUDIO_STYLE_*; 0xFF (short pre-tail file) -> compiled default
 	uint8_t audioStyle;
@@ -276,9 +276,9 @@ void saveCfg()
 		  g_rumbleStyle,
 		  g_suspendOff,
 		  {},
-		  (uint8_t)(g_audioHapticGain / 2),
+		  (uint8_t)g_audioHapticGain,
 		  g_audioHaptics,
-		  1,
+		  2,
 		  g_typeHapticStyle[ET_DS5],
 		  g_typeLimitKnee[ET_DS5],
 		  (uint8_t)(g_hdPadScale / 2),
@@ -401,15 +401,8 @@ void loadCfg()
 			// suspend power-off enable (0xFF = a cfg.bin predating this tail field -> keep the on default)
 			if (c.suspendOff <= 1)
 				g_suspendOff = c.suspendOff;
-			if (c.audioGainLinear == 1 && c.audioGain2 &&
-			    c.audioGain2 != 0xFF) {
-				uint16_t pct = (uint16_t)c.audioGain2 * 2;
-				if (pct < 10)
-					pct = 10;
-				else if (pct > 500)
-					pct = 500;
-				g_audioHapticGain = pct;
-			}
+			if (c.audioGainLinear == 2 && c.audioGain2 <= 100)
+				g_audioHapticGain = c.audioGain2;
 			if (c.audioHaptics <= 1)
 				g_audioHaptics = c.audioHaptics;
 			if (c.switchHd <= 1)
@@ -453,7 +446,8 @@ void loadCfg()
 					c.typeHapticLift[et] <=
 							HAPTIC_LIFT_MAX ?
 						c.typeHapticLift[et] :
-						HAPTIC_LIFT_DEFAULT;
+					et == ET_DS5 ? HAPTIC_LIFT_DS5_DEFAULT :
+						       HAPTIC_LIFT_DEFAULT;
 			}
 			// The poll RX window is now FIXED (g_rxWin is const) -- any persisted rxWin10 is ignored.
 		}

@@ -233,6 +233,9 @@ extern uint8_t g_typeHapticStyle[ET_COUNT];
 // 1.5x / 2x / 3x / 4x (hapticLiftGain in haptics.h). Per type, Switch and DualSense; g_hapticLift is the active
 // type's live copy (applyActiveType).
 #define HAPTIC_LIFT_DEFAULT 1
+// The DualSense plays its wave track as the game mixed it (gain 0.5x, the expander lifting louder passages), so
+// its soft boost starts off
+#define HAPTIC_LIFT_DS5_DEFAULT 0
 #define HAPTIC_LIFT_MAX 4
 extern uint8_t g_typeHapticLift[ET_COUNT];
 extern uint8_t g_hapticLift;

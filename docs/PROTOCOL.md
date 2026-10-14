@@ -384,9 +384,10 @@ PCM streaming, measured with the controller's IMU over USB (2026-10-03):
 - Grip linearity, measured with the controller resting on a table (2026-10-12): vibration rises in proportion to
   the sample amplitude up to about 0.7 of full scale, eases off toward full scale, and clips past it. Driving
   about twice full scale (two full bands at 200% grip strength) makes the grips audibly grind. OpenPuck therefore
-  caps the Switch wave style at 100% grip strength and the DualSense wave style at 250% haptic gain. A soft-limit
+  caps the Switch wave style at 100% grip strength; the DualSense wave gain reaches 2× because games mix that track
+  well below full scale, and the soft limiter rounds off a loud one. A soft-limit
   knee of 85 costs no measurable strength, while 70 costs 3-5% near the top; two blind A/B tests (steady and
-  swept) found no audible difference, with 85 preferred. On the DualSense at 250% gain, a blind swept A/B with no
+  swept) found no audible difference, with 85 preferred. On the DualSense at 1× gain, a blind swept A/B with no
   dropped packets or underruns felt 85 and 100 alike and 70 weaker; 85 stays the default as headroom for peaks.
 - An 8 kHz stereo stream is 258 frames/s, above one relay per 4 ms poll. OpenPuck flushes a second queued relay in
   the same cycle when the ring holds a backlog, and resends an unanswered `0x86`-`0x89` frame once with the same PID.
@@ -526,7 +527,7 @@ Messages:
     fields address whichever applies to its HD rumble setting, `39` host-rumble style (`RUMBLE_STYLE_*` in `haptics.h`:
     0 normal, 1 mono, 2 heavy, 3 light, 4 swapped, 5 punchy, 6 soft; not used in Switch Pro mode, which
     renders HD rumble, §9.5), `38` Switch Pro gyro mapping.
-    DualSense audio haptics: `31` on/off, `30` gain as percent/2 (10-500%, 0 = automatic), `88` style
+    DualSense audio haptics: `31` on/off, `30` gain 0-100% of the style's strongest (0 = automatic; from version 24, before that percent/2 of 10-500%), `88` style
     (0 rumble, 1 tone, 2 split, 3 wave; default 3). See DUALSENSE_HAPTICS.md.
     Grip limiter (blob version ≥ 23): `115` soft-limit knee of the grip PCM stream, percent of full scale,
     50..100 (85 default, 100 = off: hard clip only); other values are ignored. Per type, only for the Switch
@@ -654,7 +655,7 @@ stick passes straight through. A mapped pad also stops reporting as a touchpad c
 
 From version 21, payload byte 193 (`p[195]`) is the rumble style. Version 22 adds payload byte 194 (`p[196]`),
 `0x52` when the firmware has RF recovery. From version 23, payload bytes 195..199 (`p[197..201]`) are the DualSense
-audio-haptic gain as percent/2 (0 = automatic), audio haptics on/off, audio haptics style, the grip-limiter knee in
+audio-haptic gain (0-100% from version 24, before that percent/2; 0 = automatic), audio haptics on/off, audio haptics style, the grip-limiter knee in
 percent, and the Switch Pro HD trackpad strength as percent/2. Payload bytes 200..203 (`p[202..205]`) are the
 grip-limiter knee per type, and 204..207 (`p[206..209]`) the haptic style per type, both indexed by emulated type
 (Xbox, Switch, DS4, DS5); `p[199]` and `p[200]` remain the DualSense's style and the active type's knee. Payload

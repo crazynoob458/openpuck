@@ -142,7 +142,8 @@ static void webusbSendBlob()
 
 	// clang-format off
 	// protocol version
-	// (23 = +DualSense audio haptics (fields 30/31, blob p[197..198]), haptic style (field 88, p[199]), grip
+	// (24 = DualSense haptic gain (field 30, blob p[197]) runs 0-100% of each style's strongest, was 10-500%;
+	// 23 = +DualSense audio haptics (fields 30/31, blob p[197..198]), haptic style (field 88, p[199]), grip
 	// limiter knee (field 115, p[200]), HD trackpad strength (field 141, p[201]) and the per-type haptics
 	// block p[202..218];
 	// 22 = +RF recovery capability marker at blob p[196];
@@ -167,7 +168,7 @@ static void webusbSendBlob()
 	// 7 = +raw accel; 
 	// 6 = +swPro120/gyroScale)
 	// clang-format on
-	p[2] = 23;
+	p[2] = 24;
 	p[3] = g_usbMode;
 	p[4] = (uint8_t)g_mDiv;
 	p[5] = (uint8_t)g_mFric;
@@ -353,8 +354,8 @@ static void webusbSendBlob()
 	// v22: append-only RF recovery transport capability. p[181] remains the
 	// upstream Steam Machine toggle; older RF builds used that byte for 0x52.
 	p[196] = 0x52;
-	// DualSense audio haptic gain as PERCENT/2 (10-500%); 0 = auto (default)
-	p[197] = (uint8_t)(g_audioHapticGain / 2);
+	// DualSense haptic gain, 0-100% of the style's strongest (v24; percent/2 of 10-500% before); 0 = auto
+	p[197] = (uint8_t)g_audioHapticGain;
 	p[198] = g_audioHaptics;
 	p[199] = g_audioHapticStyle;
 	p[200] = g_hapticLimitKnee;
@@ -1465,18 +1466,10 @@ void webusbPoll()
 						v > 250 ? 500 : (uint16_t)v * 2;
 					break;
 
-				// DualSense audio-driven haptic gain (percent / 2, 10-500%; 0 = auto)
-				case 30: {
-					uint16_t pct = (uint16_t)v * 2;
-					if (!v)
-						pct = 0;
-					else if (pct < 10)
-						pct = 10;
-					else if (pct > 500)
-						pct = 500;
-					g_audioHapticGain = pct;
+				// DualSense haptic gain: 1-100% of the style's strongest, 0 = Auto
+				case 30:
+					g_audioHapticGain = v > 100 ? 100 : v;
 					break;
-				}
 					// (fields 23/24, Switch Pro report rate + gyro scale, removed -- rate is
 					//  fixed at full and the gyro mapping is now field 38)
 					// (field 25, poll RX window, removed -- g_rxWin is now FIXED/not configurable)

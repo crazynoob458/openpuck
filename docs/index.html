@@ -774,17 +774,18 @@ function setTab(et){
     if(def.key==="DS5"){
       const row=document.createElement("div"); row.className="row";
       const lab=document.createElement("label"); lab.textContent="Audio Haptics Gain"; row.appendChild(lab);
-      // 0 = Auto (firmware default): the loudest recent haptic plays at full strength
-      const sl=document.createElement("input"); sl.type="range"; sl.min=0; sl.max=500; sl.step=10; row.appendChild(sl);
+      // 0-100% of the style's strongest (protocol v24; percent/2 of 10-500% before). 0 = Auto (firmware default):
+      // the loudest recent haptic plays at full strength
+      const sl=document.createElement("input"); sl.type="range"; sl.min=0; sl.max=100; sl.step=5; row.appendChild(sl);
       const vspan=document.createElement("span"); vspan.className="val"; row.appendChild(vspan);
-      // Wave skips the auto gain, so there Auto is a fixed 100%
-      const gainLabel=v=>+v?v+"%":(rec.audioStyle && +rec.audioStyle.value===3)?"Auto (100%)":"Auto";
+      // Wave skips the auto gain, so there Auto is a fixed 25%
+      const gainLabel=v=>+v?v+"%":(rec.audioStyle && +rec.audioStyle.value===3)?"Auto (25%)":"Auto";
       sl.value=0; vspan.textContent=gainLabel(0);
       sl.addEventListener("input",()=>{ vspan.textContent=gainLabel(sl.value); });
-      sl.addEventListener("change",()=>setField(30, (+sl.value)/2));
+      sl.addEventListener("change",()=>setField(30, lastP && lastP[0]<24 ? Math.round(sl.value*5/2) : +sl.value));
       sec.appendChild(row);
       const gnote=document.createElement("p"); gnote.className="note";
-      gnote.textContent="The Wave style stops getting stronger at 250%: past that a full-strength haptic track overdrives the grips and they grind. Higher gains still apply to the Tone, Split and Rumble styles.";
+      gnote.textContent="100% is the strongest each style plays. Wave plays the game's haptic track as sent, scaled up to 2× at 100%. Auto, 25%, shakes the grips about as hard as a real DualSense; past about 2× the grips can't get stronger. The Grip limiter rounds off a loud track before it clips. In the Tone, Split and Rumble styles Auto evens out each game's level.";
       sec.appendChild(gnote);
       rec.audioGain=sl; rec.audioGainV=vspan; rec.audioGainLabel=gainLabel;
     }
@@ -825,7 +826,7 @@ function setTab(et){
       { const row=document.createElement("div"); row.className="row hide";
         const lab=document.createElement("label"); lab.textContent="Soft boost"; row.appendChild(lab);
         const lift=document.createElement("select");
-        for(const [v,lbl] of [[0,"Off"],[1,"Gentle (up to 1.5×, default)"],[2,"Low (up to 2×)"],[3,"Medium (up to 3×)"],[4,"High (up to 4×)"]]){ const o=document.createElement("option"); o.value=v; o.textContent=lbl; lift.appendChild(o); }
+        for(const [v,lbl] of [[0,"Off"+(def.key==="DS5"?" (default)":"")],[1,"Gentle (up to 1.5×"+(def.key==="DS5"?")":", default)")],[2,"Low (up to 2×)"],[3,"Medium (up to 3×)"],[4,"High (up to 4×)"]]){ const o=document.createElement("option"); o.value=v; o.textContent=lbl; lift.appendChild(o); }
         row.appendChild(lift); sec.appendChild(row);
         const note=document.createElement("p"); note.className="note hide";
         note.textContent="Raises quiet haptics, like soft footsteps, so you can feel them. Strong hits are left as they are. The grips play even very soft vibration, but a hand barely notices it below a few percent of full strength. Applies to the Wave style.";
@@ -1718,7 +1719,8 @@ function applyBlob(p){
         if(rec.lift) rec.lift.disabled=true;
       }
       if(rec.audioGain && p.length>195){
-        const gain = p[195]*2;
+        // v24: 0-100%; older builds report percent/2 of 10-500%
+        const gain = p[0]>=24 ? p[195] : Math.min(100, Math.round(p[195]*2/5));
         if(document.activeElement!==rec.audioGain){
           rec.audioGain.value = gain;
           rec.audioGainV.textContent = rec.audioGainLabel(gain);

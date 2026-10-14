@@ -240,7 +240,8 @@ In [mode_ps5_audio.cpp](../OpenPuck/mode_ps5_audio.cpp) (`processAudioSamples`, 
    between ticks as RMS; the halving fall halves that jitter while hits land at full strength on their first tick.
 3. **Auto gain** (default, `g_audioHapticGain == 0`): a reference level plays at full strength. It jumps to any louder
    peak and sinks by 1/1024 per tick (about a 20 s time constant), never below 8192, which caps the boost at 4×. A
-   manual 10–500% gain uses full scale as the reference instead. Wave style skips this step (see below).
+   manual 1–100% gain (5× that internally) uses full scale as the reference instead. Wave style skips this step (see
+   below).
 4. **Drive:** √(level / reference) × gain, 1.0 = full strength. Linear left Stellar Blade's footsteps (40 ms pulses at
    about 5% of full scale) at 10–17% rumble or −15 to −20 dB tone, which isn't felt; the root puts them at 35–45%.
 5. **Output style** (`g_audioHapticStyle`):
@@ -259,19 +260,25 @@ In [mode_ps5_audio.cpp](../OpenPuck/mode_ps5_audio.cpp) (`processAudioSamples`, 
      its zero crossings (gate 100).
    - **Wave** (default): the haptic channels themselves, through a 300 Hz low-pass (two cascaded 2nd-order Butterworth
      sections; in a feel test 500 Hz was still a little harsh on strong hits), decimated to 4 kHz,
-     scaled linearly with no auto gain, as a real DualSense plays them: 100% (and Auto) puts int16 full scale at 40%
-     of u-law full scale. Half matched a real pad's strength in FFXIV (2026-10-04) but felt too strong in most other
-     games, including Control Resonant, where 80% of that felt right (2026-10-05). Then u-law encoded and sent as `0x88` stereo PCM frames of 31
+     scaled linearly with no auto gain, as a real DualSense plays them: 100% is 2× the track and Auto is 25% (0.5×).
+     Calibrated on both controllers' accelerometers with one Black Flag Resynced clip played to the puck and a real
+     DualSense together (2026-10-14): mid-level effects shake the grips as hard as the real pad at 0.5×, while the
+     clip's hits stop at about 55 mg on the grips against about 80 mg on the real pad, reached at 2×.
+     An expander raises the gain with the track's own level (1× below 6% of full scale, a power law of 0.35 up to
+     2×, `waveExpandGain` in haptics.h): peaks of 2-4k needed 0.5-0.6× to match the real pad and peaks of 6-7k about
+     0.75×. What it can't fix is frequency: the grips are about twice as strong as the real pad at 90-140 Hz and weaker
+     below 60 Hz, which the IMUs (250 reports/s) can't measure well above ~100 Hz. Soft boost starts off on the
+     DualSense (a saved setting is kept) and the Grip limiter at 85. Then u-law encoded and sent as `0x88` stereo PCM frames of 31
      samples (129 frames/s), left channel to the left **grip** actuator (`0x88` is a grip stream). Streams while either channel's envelope is above
-     gate 100 and for 300 ms after; `0x86 {2, 2, 9}` sets the format at each start and every second. The controller
+     gate 16 (games' idle tracks are exact zeros) and for 300 ms after; `0x86 {2, 2, 9}` sets the format at each start and every second. The controller
      pre-buffers (24 ms with the short third frame, PROTOCOL.md), so it starts about 20 ms later than a tone. No `0x80` rumble from the audio. See PROTOCOL.md
      section 9.1 for the measured PCM behaviour.
 
 The game's ordinary rumble (output report `0x02`) always goes through `0x80`, in every style. `hapticUpdateRumble`
 adds it to the audio rumble (rumble and split styles) and sends one frame.
 
-Web panel and config (protocol v23): on/off is field 31 (blob `p[198]`), gain is field 30 (percent/2, 0 = Auto;
-blob `p[197]`), style is field 88 (blob `p[199]`: 0 rumble, 1 tone, 2 split, 3 wave). The style is per
+Web panel and config (protocol v24): on/off is field 31 (blob `p[198]`), gain is field 30 (0-100% of the style's
+strongest, 0 = Auto; percent/2 of 10-500% before v24; blob `p[197]`), style is field 88 (blob `p[199]`: 0 rumble, 1 tone, 2 split, 3 wave). The style is per
 emulated type: the DualSense's is field 124 + 3 and the Switch Pro's (its HD rumble grips, PROTOCOL.md §9.5) field
 124 + 1, in blob `p[206..209]`. Field 88 and `p[199]` stay the DualSense's, for older panels. All are saved in
 `cfg.bin`.
