@@ -270,18 +270,18 @@ In [mode_ps5_audio.cpp](../OpenPuck/mode_ps5_audio.cpp) (`processAudioSamples`, 
 The game's ordinary rumble (output report `0x02`) always goes through `0x80`, in every style. `hapticUpdateRumble`
 adds it to the audio rumble (rumble and split styles) and sends one frame.
 
-Web panel and config (protocol v22): on/off is field 31 (blob `p[197]`), gain is field 30 (percent/2, 0 = Auto;
-blob `p[196]`), style is field 88 (blob `p[198]`: 0 rumble, 1 tone, 2 split, 3 wave). The style is per
+Web panel and config (protocol v23): on/off is field 31 (blob `p[198]`), gain is field 30 (percent/2, 0 = Auto;
+blob `p[197]`), style is field 88 (blob `p[199]`: 0 rumble, 1 tone, 2 split, 3 wave). The style is per
 emulated type: the DualSense's is field 124 + 3 and the Switch Pro's (its HD rumble grips, PROTOCOL.md §9.5) field
-124 + 1, in blob `p[205..208]`. Field 88 and `p[198]` stay the DualSense's, for older panels. All are saved in
+124 + 1, in blob `p[206..209]`. Field 88 and `p[199]` stay the DualSense's, for older panels. All are saved in
 `cfg.bin`.
 
-**Grip limiter** (Rumble card, protocol v22): the knee of the soft limiter on the grip PCM stream, as a
+**Grip limiter** (Rumble card, protocol v23): the knee of the soft limiter on the grip PCM stream, as a
 percent of full scale: 50, 60, 70 (default), 80, 90, or 100 = off. Below the knee the waveform passes unchanged;
 above it, peaks are rounded off toward full scale instead of clipping, which plays as a pop. Lower is smoother on
 the strongest hits, higher keeps more of their punch. The DualSense and the Switch each keep their own knee
 (`g_typeLimitKnee`; `g_hapticLimitKnee` is the active type's copy, read by `hapticSoftLimit` in haptics.h): fields
-120 + type, blob `p[201..204]`, saved in `cfg.bin`. Field 115 and `p[199]` still work for older panels: a write
+120 + type, blob `p[202..205]`, saved in `cfg.bin`. Field 115 and `p[200]` still work for older panels: a write
 sets both types, and the read is the active type's.
 
 ## 8. Pitfalls

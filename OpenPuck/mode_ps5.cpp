@@ -52,16 +52,6 @@ static Adafruit_USBD_HID g_ps5[NSLOT];
 static const uint8_t PS5_MAC_BASE[5] = { 0x00, 0x1B, 0xDC, 0x4F, 0x55 };
 static uint8_t g_ps5Mac[NSLOT][6];
 static bool g_ps5MacInit = false;
-static void initPs5Macs()
-{
-	if (g_ps5MacInit)
-		return;
-	for (int s = 0; s < NSLOT; s++) {
-		memcpy(g_ps5Mac[s], PS5_MAC_BASE, 5);
-		g_ps5Mac[s][5] = (uint8_t)(0x60 + s); // 0x60, 0x61, 0x62, 0x63
-	}
-	g_ps5MacInit = true;
-}
 
 // USB firmware-information payload from a DualSense, excluding report ID 0x20.
 // This emulated identity is independent of OpenPuck's own build version.
@@ -74,6 +64,17 @@ static const uint8_t PS5_FIRMWARE_INFO[] = {
 	0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 static_assert(sizeof PS5_FIRMWARE_INFO == 63, "PS5 firmware report size");
+
+static void initPs5Macs()
+{
+	if (g_ps5MacInit)
+		return;
+	for (int s = 0; s < NSLOT; s++) {
+		memcpy(g_ps5Mac[s], PS5_MAC_BASE, 5);
+		g_ps5Mac[s][5] = (uint8_t)(0x60 + s); // 0x60, 0x61, 0x62, 0x63
+	}
+	g_ps5MacInit = true;
+}
 
 // Pairing-report bytes after the pad's MAC: a constant 08 25 00, then the paired host's MAC (little-endian).
 static const uint8_t PS5_PAIRING_TAIL[9] = { 0x08, 0x25, 0x00, 0x1E, 0x00,
@@ -205,6 +206,8 @@ static void ps5SetCommon(uint8_t slot, uint8_t rid, hid_report_type_t type,
 		p = b + 1;
 		pn = (uint16_t)(n - 1);
 	} else {
+		// TinyUSB already strips the ID from control SET_REPORT data.
+		// A leading 0x02 here is the haptics flag, not another ID.
 		id = rid;
 		p = b;
 		pn = n;

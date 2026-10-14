@@ -179,6 +179,7 @@ struct Cfg {
 	// autonomous controller power-off on host sleep (see haptics.h g_suspendOff). 0/1; 0xFF (short
 	// pre-tail file) -> compiled default (on)
 	uint8_t suspendOff;
+	uint8_t ext[CFG_EXT_STORAGE_BYTES];
 	// DualSense audio haptic gain pct/2 (10..500%); 0 = auto
 	uint8_t audioGain2;
 	// DualSense audio-driven haptics enable. 0/1; 0xFF (short pre-tail file) -> compiled default (on)
@@ -208,6 +209,21 @@ struct Cfg {
 // tail field treats as "unset" and replaces with its default.
 #define CFG_LEN_MIN (offsetof(struct Cfg, chordDpad))
 
+static uint8_t g_cfgExt[CFG_EXT_STORAGE_BYTES] = {
+	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+};
+
+uint8_t cfgExtRead(uint8_t index)
+{
+	return index < CFG_EXT_STORAGE_BYTES ? g_cfgExt[index] : 0xFFu;
+}
+
+void cfgExtWrite(uint8_t index, uint8_t value)
+{
+	if (index < CFG_EXT_STORAGE_BYTES)
+		g_cfgExt[index] = value;
+}
+
 void saveCfg()
 {
 	Cfg c = { CFG_MAGIC,
@@ -229,6 +245,7 @@ void saveCfg()
 		  {},
 		  g_rumbleStyle,
 		  g_suspendOff,
+		  {},
 		  (uint8_t)(g_audioHapticGain / 2),
 		  g_audioHaptics,
 		  1,
@@ -240,6 +257,7 @@ void saveCfg()
 		  {},
 		  g_switchHd,
 		  (uint8_t)(g_switchPlainScale / 2) };
+	memcpy(c.ext, g_cfgExt, sizeof c.ext);
 	for (int i = 0; i < ET_COUNT; i++) {
 		c.type[i] = g_type[i];
 		c.typeLimitKnee[i] = g_typeLimitKnee[i];
@@ -259,6 +277,7 @@ void saveCfg()
 void loadCfg()
 {
 	Cfg c;
+	memset(g_cfgExt, 0xFF, sizeof g_cfgExt);
 	// 0xFF prefill: bytes a SHORT (pre-tail) cfg.bin never wrote stay 0xFF, which is not a valid mode/flag, so
 	// each tail field below falls back to its compiled default instead of reading whatever was on the stack.
 	memset(&c, 0xFF, sizeof c);
@@ -270,6 +289,13 @@ void loadCfg()
 		// predating the tail keeps mode/paddles/chords instead of silently reverting to factory defaults.
 		// Anything shorter, or a stale magic, is a real layout change -> discard and use defaults.
 		if (got >= (int)CFG_LEN_MIN && c.magic == CFG_MAGIC) {
+			const int extOff = (int)offsetof(struct Cfg, ext);
+			if (got > extOff) {
+				int n = got - extOff;
+				if (n > (int)sizeof g_cfgExt)
+					n = sizeof g_cfgExt;
+				memcpy(g_cfgExt, c.ext, (size_t)n);
+			}
 			g_mDiv = c.mDiv ? c.mDiv : 64;
 			g_mFric = c.mFric;
 			for (int i = 0; i < ET_COUNT; i++)
@@ -313,8 +339,8 @@ void loadCfg()
 					if (c.padStick[i][k] <= PS_MAX)
 						g_padStickCfg[i][k] =
 							c.padStick[i][k];
-			// grow a short file to the current layout on the next save
-			if (got < (int)sizeof c)
+			// Missing extension bytes alone do not force a config rewrite.
+			if (got < (int)offsetof(struct Cfg, ext))
 				consume = true;
 
 			// lizard-suppression keepalive enable (0/1; anything else = a pre-0xCE cfg leaked

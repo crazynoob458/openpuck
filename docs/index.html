@@ -23,6 +23,8 @@
   /* ReversePuck dongle: hide every puck-only Controller card, keep just the paired-pucks card (this leaves
      the debugonly/lizard inline visibility rules untouched, so switching back to a puck restores them). */
   body.dongle #tabMain > .cards > .card:not(#pairedCard){display:none !important}
+  .cloneSub{font-size:13px;color:var(--fg);margin:16px 0 6px;padding-top:12px;border-top:1px solid #272d3d}
+  #cloneHome .cloneSub{display:none}
   .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 14px}
   .row{display:flex;align-items:center;gap:14px;margin:12px 0;flex-wrap:wrap}
   .row label{flex:0 0 150px;color:var(--fg)}
@@ -139,6 +141,9 @@
 </div>
 <div class="wrap">
   <p class="sub">First connect uses the Chrome/Edge device picker; reconnects are automatic. If the picker is empty, quit any app holding the device or replug.</p>
+
+  <!-- holds the clone section while no OpenPuck is connected (the Backup & clone card is hidden then) -->
+  <div class="card" id="cloneHome"><h2>Clone pairings from an official puck</h2></div>
 
   <div id="panel" class="hide">
     <div class="slot-tabs" id="mainTabs">
@@ -263,8 +268,34 @@
       </div>
       <div class="row debugonly" style="margin:10px 0 0;border-top:1px solid #272d3d;padding-top:14px"><button id="stabBtn">Test stability</button>
         <span class="v" id="stabStatus" style="flex:0 0 auto;min-width:120px">—</span>
-        <span class="note" style="flex:1">Buzzes the controllers every 10 s (keeps them awake) and times how long the puck stays up. On a reset it records the uptime and shows it by <em>Last reset</em>; it auto-resumes after the puck reconnects. The count is kept in this tab (a page refresh clears it).</span>
+        <span class="note" style="flex:1">Buzzes the controllers every 10 s and times how long the puck stays up. On a reset it records the uptime and shows it by <em>Last reset</em>; it auto-resumes after the puck reconnects. The count is kept in this tab (a page refresh clears it).</span>
       </div>
+    </div>
+
+    <div class="card wide hide" id="rfRecoveryCard">
+      <h2>RF recovery &amp; channel journal</h2>
+      <div class="statgrid">
+        <div class="stat"><div class="k">Active channel</div><div class="v" id="rfActiveCh">—</div></div>
+        <div class="stat"><div class="k">Recovery target</div><div class="v" id="rfTargetCh">—</div></div>
+        <div class="stat"><div class="k">Startup channel</div><div class="v" id="rfStartupCh">—</div></div>
+        <div class="stat"><div class="k">Ambient survey</div><div class="v" id="rfSurveyState">—</div></div>
+        <div class="stat"><div class="k">Journal sequence</div><div class="v" id="rfJournalSeq">—</div></div>
+        <div class="stat"><div class="k">Journal writes this boot</div><div class="v" id="rfJournalWrites">—</div></div>
+        <div class="stat"><div class="k">Handoff status</div><div class="v" id="rfHandoffStatus" style="font-size:14px">Idle</div></div>
+        <div class="stat"><div class="k">Journal builder</div><div class="v" id="rfBuilderStatus" style="font-size:14px">Idle</div></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="rfSurvey">Survey Ambient RF</button>
+        <button id="rfBuilder" style="margin-left:8px">Build RF Journal</button>
+      </div>
+      <p class="note" style="margin-top:10px"><strong>Survey Ambient RF</strong> samples background RF interference across all 14 recovery channels and updates the Ambient measurements shown below.<br><strong>Build RF Journal</strong> will initiate a comprehensive 14-channel scan to build the RF Journal ahead of time and save the winning channel as Startup.<br><strong>Hop</strong> uses the same neutral-gated coordinated channel migration as automatic RF recovery.<br><strong>Startup</strong> manually saves that channel as the starting channel for subsequent boots, but automatic RF learning may replace it later.</p>
+      <div style="overflow-x:auto;margin-top:12px">
+        <table style="width:100%;border-collapse:collapse;font-size:0.88em">
+          <thead><tr style="text-align:left"><th>Channel</th><th>MHz</th><th>Journal</th><th>Worst</th><th>Mean</th><th>Confidence</th><th>Trials</th><th>Penalty</th><th>Ambient</th><th>Recent</th><th>Actions</th></tr></thead>
+          <tbody id="rfJournalBody"></tbody>
+        </table>
+      </div>
+      <div id="rfAmbientBars" style="display:flex;gap:4px;align-items:flex-end;height:76px;margin-top:12px;padding:8px;background:#151821;border:1px solid #272d3d;border-radius:6px"></div>
     </div>
 
     <div class="card" id="mouseCard">
@@ -292,7 +323,7 @@
            untouched, so these do nothing there. Older firmware hides the block. -->
       <div id="rumbleBlock">
         <div class="row"><label>Style</label><select id="rumbleStyle"></select></div>
-        <!-- firmware >= v22: the rumble strength, grip limiter, haptics style and Switch HD trackpad strength are per type, in each controller's tab -->
+        <!-- firmware >= v23: the rumble strength, grip limiter, haptics style and Switch HD trackpad strength are per type, in each controller's tab -->
         <div id="hapticPcmBlock" class="hide">
           <p class="note">Switch Pro mode plays the console's HD rumble. The high band of each side plays as a tone on that side's trackpad (at the HD trackpad strength); the grips follow the Switch tab's haptics style, at the strength above. The Switch tab's HD Rumble toggle turns all of this off: the console's rumble then plays as plain motor rumble, shaped by the Style and Strength above. The grip limiter, set per type in the Switch and DS5 tabs, rounds off loud peaks on the grips in the wave style so they don't clip into pops.</p>
         </div>
@@ -322,7 +353,7 @@
       <p class="note" id="lzStatus" style="margin-top:8px">—</p>
     </div>
 
-    <div class="card">
+    <div class="card" id="backupCard">
       <h2>Backup &amp; clone</h2>
       <p class="note" style="margin-top:0">Save this puck's controller pairings <em>and</em> every setting to a file, then restore them onto another puck. The other puck becomes a clone — any controller paired to this one connects to it with <strong>no re-pairing</strong>. (Also a plain backup: re-import after a factory erase to get everything back.)</p>
       <div class="row" style="margin:0;flex-wrap:wrap">
@@ -331,6 +362,17 @@
         <input type="file" id="backupFile" accept="application/json,.json" style="display:none">
       </div>
       <p class="note">Import <strong>overwrites</strong> all pairings and settings on the connected puck, then reboots it (~2 s — reconnect after). Tip: pair every controller to one puck, export once, then import onto each spare.</p>
+      <div id="cloneSec">
+        <h3 class="cloneSub">Clone from an official puck</h3>
+        <p class="note" style="margin-top:0">Copy the controller pairings off a Valve puck so those controllers connect to this OpenPuck with <strong>no re-pairing</strong>. Works with one USB port: <b>1.</b> plug in the official puck and read it, <b>2.</b> unplug it, plug in the OpenPuck, Connect, and write. With both plugged in, the browser lists two identical "Steam Controller Puck" entries in step 1 — pick either; if it's the OpenPuck, the panel says so and you pick the other. Existing pairings and settings on the OpenPuck are kept.</p>
+        <div class="row" style="margin:0;flex-wrap:wrap">
+          <button id="cloneRead">1. Read official puck…</button>
+          <button id="cloneWrite" class="primary" disabled>2. Write to this OpenPuck</button>
+          <button id="cloneForget" class="hide">Forget</button>
+        </div>
+        <p class="note" id="cloneStatus">—</p>
+        <p class="note"><b>macOS:</b> reading the official puck needs Chrome in <em>System Settings → Privacy &amp; Security → Input Monitoring</em> (restart Chrome after enabling it). The puck's interfaces include a keyboard, so macOS asks for this — the page can only reach the puck's vendor channel, never keystrokes. You can switch it off again afterwards.</p>
+      </div>
     </div>
 
     <div class="card wide debugonly">
@@ -582,7 +624,7 @@ const DPAD = {12:"D-pad Up",13:"D-pad Down",14:"D-pad Left",15:"D-pad Right"};
 const HAPTIC_KNEES=[50,60,70,80,90,100];
 // Haptics styles of the grips (AUDIO_STYLE_* in config.h): per type (fields 124..127), or the DualSense's field 88 on older firmware
 const HAPTIC_STYLES=[[3,"Wave"],[1,"Tone"],[2,"Split"],[0,"Rumble"]];
-// firmware >= v22 with the per-type blob bytes (payload p[199..206]); set by the status poll
+// firmware >= v23 with the per-type blob bytes (payload p[200..207]); set by the status poll
 let g_perTypeHaptics=false;
 // firmware with the per-type rumble strength bytes (payload p[208..211], fields 108..111); set by the status poll
 let g_perTypeStrength=false;
@@ -618,7 +660,8 @@ const LZ_BTNS = [
   [0x2000,"D-pad Up"],[0x400,"D-pad Down"],[0x1000,"D-pad Left"],[0x800,"D-pad Right"],
   [0x400000,"Right pad click"],[0x4000000,"Left pad click"],
   [0x200000,"Right pad touch"],[0x2000000,"Left pad touch"],
-  [0x10000000,"L-stick → right"],[0x20000000,"L-stick → left"],[0x40000000,"L-stick → down"],[0x80000000,"L-stick → up"],
+  [Math.pow(2,32),"L-stick → right"],[Math.pow(2,33),"L-stick → left"],[Math.pow(2,34),"L-stick → down"],[Math.pow(2,35),"L-stick → up"],
+[Math.pow(2,36),"R-stick → right"],[Math.pow(2,37),"R-stick → left"],[Math.pow(2,38),"R-stick → down"],[Math.pow(2,39),"R-stick → up"],
 ];
 // Keyboard modifier bits (od[0] for KBD output).
 const LZ_MODS = [[0x01,"Ctrl"],[0x02,"Shift"],[0x04,"Alt"],[0x08,"Win/⌘"]];
@@ -632,11 +675,11 @@ const LZ_KEYS = [[0,"— none —"]];
  [0x2d,"- _"],[0x2e,"= +"],[0x46,"Print Screen"]].forEach(k=>LZ_KEYS.push(k));
 for(let i=0;i<12;i++) LZ_KEYS.push([0x3a+i,"F"+(i+1)]);
 const LZ_MBTNS = [[1,"Left click"],[2,"Right click"],[4,"Middle click"]];
-const LZ_AXIS_SRC = [[0,"Right trackpad"],[1,"Left stick"],[2,"Gyro"]];
+const LZ_AXIS_SRC = [[0,"Right trackpad"],[3,"Left trackpad"],[1,"Left stick"],[4,"Right stick"],[2,"Gyro"]];
 const LZ_GYRO_ACT = [[0,"Always"],[1,"While right pad touched"],[2,"While left stick deflected"],[3,"While hold-button held"]];
 const LZ_CONSUMER = [[1,"Volume +"],[2,"Volume −"]];
 
-function lzBtnLabel(mask){ const m=LZ_BTNS.find(b=>b[0]===(mask>>>0)); return m?m[1]:(mask?("0x"+(mask>>>0).toString(16)):""); }
+function lzBtnLabel(mask){ const v=Number(mask)||0; const m=LZ_BTNS.find(b=>Number(b[0])===v); return m?m[1]:(v?("0x"+v.toString(16)):""); }
 let lizardBindings = [];   // [{outType, od:[7], trig, hold}]
 let lizardBusy = false;
 let lizardLoaded = false;  // one-shot: the lizard map is fetched lazily, only once the connected puck proves it speaks v16+
@@ -746,7 +789,7 @@ function setTab(et){
       row.appendChild(sel); sec.appendChild(row);
       rec.strength=sel;
       sel.addEventListener("change",()=>setField(g_perTypeStrength?108+et:22, (+sel.value)/2)); }
-    // Haptics style and grip limiter (DS5 and Switch). Style (protocol v22): 0 rumble = the motor-style rumble,
+    // Haptics style and grip limiter (DS5 and Switch). Style (protocol v23): 0 rumble = the motor-style rumble,
     // 1 tone = smooth per-actuator tones, 2 split = below ~80 Hz as rumble, the rest as tones, 3 wave = the haptic
     // channels streamed to the grips (default). The Switch plays HD rumble through the same four. Both are per
     // type on newer firmware.
@@ -809,6 +852,386 @@ const RUMBLE_STYLES=[["Normal (default)",0],["Mono (both motors)",1],["Heavy (lo
 { const sel=document.getElementById("rumbleStyle");
   for(const [lbl,v] of RUMBLE_STYLES){
     const o=document.createElement("option"); o.value=v; o.textContent=lbl; sel.appendChild(o); }
+}
+
+// ---- RF recovery / journal status ----
+let rfCapable=false, rfBusy=false, rfLastRefresh=0, rfHopPending=false, rfHandoffActive=false, rfHandoffPhase=0, rfBuilderActive=false, rfBuilderSaving=false, rfBuilderStartPending=false, rfSurveyRunning=false, rfSurveyPending=false, rfSurveyGeneration=0, rfSurveyWatchActive=false, rfSurveyLockActive=false, rfSurveyLockGeneration=0, rfSurveyRetry=0, rfSurveyFailure=0, rfSurveyFailureChannel=0;
+let rfHopRequestedCh=0, rfHopSawHandoff=false;
+let rfPoolChannels=new Set();
+const RF_DESIG=["unexplored","good","poor","mixed"];
+function rfChLabel(ch){ return ch ? `Ch ${ch} · ${2400+ch} MHz` : "—"; }
+function rfElapsedLabel(ms){
+  if(ms<1000) return `${ms} ms`;
+  const s=Math.floor(ms/1000);
+  if(s<60) return `${(ms/1000).toFixed(1)} s`;
+  const m=Math.floor(s/60);
+  if(m<60) return `${m}m ${String(s%60).padStart(2,"0")}s`;
+  const h=Math.floor(m/60);
+  if(h<24) return `${h}h ${String(m%60).padStart(2,"0")}m`;
+  const d=Math.floor(h/24);
+  return `${d}d ${String(h%24).padStart(2,"0")}h`;
+}
+function applyRfStatus(p){
+  if(!p || p.length<13 || p[0]!==1) return;
+  const flags=p[1], current=p[2], target=p[3], startup=p[4], count=p[5];
+  const writes=p[6], generation=p[7]|(p[8]<<8);
+  const seq=((p[9]|(p[10]<<8)|(p[11]<<16)|(p[12]<<24))>>>0);
+  $("#rfActiveCh").textContent=rfChLabel(current);
+  $("#rfTargetCh").textContent=target?rfChLabel(target):"none";
+  $("#rfStartupCh").textContent=rfChLabel(startup || 18);
+  $("#rfJournalSeq").textContent=String(seq);
+  $("#rfJournalWrites").textContent=String(writes);
+  const running=!!(flags&1), pending=!!(flags&2), ambient=!!(flags&4), live=!!(flags&8), handoff=!!(flags&16);
+  const tail=13+count*9;
+  const hopPhase=p.length>=tail+4?p[tail]:0;
+  const hopElapsed16=p.length>=tail+4?(p[tail+1]|(p[tail+2]<<8)):0;
+  const hopOld=p.length>=tail+4?p[tail+3]:0;
+  // The automatic-handoff trailer follows 4 handoff bytes, 7 Builder bytes,
+  // and the ambient-survey channel byte. Parse it before rendering handoff state.
+  const autoBase=tail+12;
+  const waitReason=p.length>=autoBase+5?p[autoBase]:0;
+  const neutralMs=p.length>=autoBase+5?(p[autoBase+1]|(p[autoBase+2]<<8)):0;
+  const recoveryCooldown=p.length>=autoBase+5?p[autoBase+3]:0;
+  const recoveryFailedTarget=p.length>=autoBase+5?p[autoBase+4]:0;
+  const surveyDiagBase=autoBase+5;
+  const surveyRetry=p.length>=surveyDiagBase+3?p[surveyDiagBase]:0;
+  const surveyFailure=p.length>=surveyDiagBase+3?p[surveyDiagBase+1]:0;
+  const surveyFailureChannel=p.length>=surveyDiagBase+3?p[surveyDiagBase+2]:0;
+  const handoffElapsedBase=surveyDiagBase+3;
+  let hopElapsed=hopElapsed16;
+  if(p.length>=handoffElapsedBase+8){
+    const lo=((p[handoffElapsedBase]|(p[handoffElapsedBase+1]<<8)|(p[handoffElapsedBase+2]<<16)|(p[handoffElapsedBase+3]<<24))>>>0);
+    const hi=((p[handoffElapsedBase+4]|(p[handoffElapsedBase+5]<<8)|(p[handoffElapsedBase+6]<<16)|(p[handoffElapsedBase+7]<<24))>>>0);
+    hopElapsed=hi*4294967296+lo;
+  }
+  const hopPhaseText=["Idle","Waiting for neutral","Authorizing","Switching","Acquiring","Reconciling","Rolling back","Reacquiring"];
+  let hopText=hopPhaseText[hopPhase]||("Phase "+hopPhase);
+  if(hopPhase===1){
+    if(waitReason===1) hopText="Starting hop · awaiting fresh controller reports";
+    else if(waitReason===2) hopText="Input detected · waiting for neutral";
+    else if(waitReason===3) hopText=`Neutral · ${Math.min(neutralMs,250)}/250 ms`;
+  }
+  if(hopPhase===2||hopPhase===3||hopPhase===4) hopText+=(target?` Ch ${target}`:"");
+  else if(hopPhase>=5) hopText+=(hopOld?` Ch ${hopOld}`:"");
+  if(hopPhase) hopText+=` · ${rfElapsedLabel(hopElapsed)}`;
+  else if(recoveryCooldown) hopText=`Recovery cooldown · ${recoveryCooldown}s${recoveryFailedTarget?` · Ch ${recoveryFailedTarget} excluded`:""}`;
+  if(hopPhase||!rfHopPending) $("#rfHandoffStatus").textContent=hopText;
+  const builderBase=tail+4;
+  const builderPhase=p.length>=builderBase+7?p[builderBase]:0;
+  const builderIndex=p.length>=builderBase+7?p[builderBase+1]:0;
+  const builderChannel=p.length>=builderBase+7?p[builderBase+2]:0;
+  const builderProgress=p.length>=builderBase+7?p[builderBase+3]:0;
+  const builderMask=p.length>=builderBase+7?p[builderBase+4]:0;
+  const builderBest=p.length>=builderBase+7?p[builderBase+5]:0;
+  const builderFailure=p.length>=builderBase+7?p[builderBase+6]:0;
+  const surveyChannel=p.length>=builderBase+8?p[builderBase+7]:0;
+  const builderFailureText=["","no live controller","RF workflow busy","journal storage full","no valid channel","final hop failed","journal save failed","journal write could not be completed","could not read controller idle timeout","startup save failed","ambient survey failed"];
+  let builderText="Idle";
+  if(builderPhase===1) builderText="Preparing controllers / ambient survey";
+  else if(builderPhase===2) builderText=`Testing ${Math.min(builderIndex+1,count)}/${count} · hopping to Ch ${builderChannel}`;
+  else if(builderPhase===3) builderText=`Testing ${Math.min(builderIndex+1,count)}/${count} · settling Ch ${builderChannel}`;
+  else if(builderPhase===4) builderText=`Testing ${Math.min(builderIndex+1,count)}/${count} · Ch ${builderChannel} · ${builderProgress}/60 s`;
+  else if(builderPhase===5) builderText=`Testing ${Math.min(builderIndex+1,count)}/${count} · between channels`;
+  else if(builderPhase===6) builderText="Selecting best channel";
+  else if(builderPhase===7) builderText=`Final hop · Ch ${builderBest||builderChannel}`;
+  else if(builderPhase===8) builderText=`Saving journal${builderBest?` · Ch ${builderBest}`:""}`;
+  else if(builderPhase===9) builderText=`Paused · waiting for controller cohort 0x${builderMask.toString(16).toUpperCase()}`;
+  else if(builderPhase===10) builderText=`Complete${builderBest?` · Ch ${builderBest} selected`:""}`;
+  else if(builderPhase===11) builderText="Canceled";
+  else if(builderPhase===12) builderText=`Failed · ${builderFailureText[builderFailure]||("code "+builderFailure)}`;
+  $("#rfBuilderStatus").textContent=builderText;
+  rfBuilderActive=builderPhase>=1&&builderPhase<=9;
+  rfBuilderSaving=builderPhase===8;
+  rfHandoffActive=handoff;
+  rfHandoffPhase=hopPhase;
+  if(rfBuilderStartPending&&builderPhase!==0) rfBuilderStartPending=false;
+  $("#rfBuilder").textContent=rfBuilderActive?"Cancel Journal Build":rfBuilderStartPending?"Starting…":"Build RF Journal";
+  syncRfBuilderDisabled();
+  rfSurveyRunning=running;
+  rfSurveyPending=pending;
+  rfSurveyGeneration=generation;
+  rfSurveyRetry=surveyRetry;
+  rfSurveyFailure=surveyFailure;
+  rfSurveyFailureChannel=surveyFailureChannel;
+  if(rfSurveyLockActive&&(surveyFailure||(!running&&!pending&&generation!==rfSurveyLockGeneration)))
+    rfSurveyLockActive=false;
+  if(rfHopPending&&handoff) rfHopSawHandoff=true;
+  if(rfHopPending&&!rfHopRequestedCh&&!handoff) rfHopPending=false;
+  const surveyFailureText=["","sample timeout","incomplete scan"];
+  $("#rfSurveyState").textContent=running?(surveyRetry&&surveyChannel?`retrying Ch ${surveyChannel} · ${surveyRetry}/5`:surveyChannel?`surveying Ch ${surveyChannel}`:"surveying"):pending?(handoff?"queued for handoff":"starting survey"):surveyFailure?`failed${surveyFailureChannel?` · Ch ${surveyFailureChannel}`:""} · ${surveyFailureText[surveyFailure]||(`code ${surveyFailure}`)}`:ambient?`cached #${generation}`:"not sampled";
+  const body=$("#rfJournalBody"), bars=$("#rfAmbientBars"); body.innerHTML=""; bars.innerHTML=""; rfPoolChannels=new Set();
+  for(let i=0;i<count;i++){
+    const q=13+i*9; if(q+9>p.length) break;
+    const ch=p[q], noise=p[q+1], d=p[q+2], worst=p[q+3], mean=p[q+4], conf=p[q+5], trials=p[q+6], penalty=p[q+7], recent=p[q+8];
+    rfPoolChannels.add(ch);
+    const tr=document.createElement("tr"); tr.dataset.rfCh=String(ch);
+    const desig=RF_DESIG[d]||("state "+d);
+    tr.innerHTML=`<td>${ch}${ch===current?' <span class="pill up">active</span>':''}${ch===target?' <span class="pill rf-target">target</span>':''}</td><td>${2400+ch}</td><td>${desig}</td><td>${trials?worst+'%':'—'}</td><td>${trials?mean+'%':'—'}</td><td>${trials?conf:'—'}</td><td>${trials}</td><td>${trials?penalty:'—'}</td><td>${noise?'-'+noise+' dBm':'—'}</td><td>${recent||'—'}</td>`;
+    const hopCell=document.createElement("td");
+    const hopBtn=document.createElement("button");
+    hopBtn.textContent=ch===current?"Active":"Hop";
+    hopBtn.dataset.rfHop="1";
+    hopBtn.disabled=ch===current||rfSurveyLockActive||rfHopWorkflowBlocked()||rfHopPending||rfBuilderActive;
+    hopBtn.style.padding="4px 8px";
+    hopBtn.dataset.rfCurrent=ch===current?"1":"0";
+    hopBtn.addEventListener("click",()=>hopRf(ch));
+    hopCell.appendChild(hopBtn);
+    const startupBtn=document.createElement("button");
+    startupBtn.textContent=ch===startup?"Startup ✓":"Startup";
+    startupBtn.dataset.rfStartup="1";
+    startupBtn.dataset.rfStartupSelected=ch===startup?"1":"0";
+    startupBtn.disabled=rfSurveyLockActive||ch===startup;
+    startupBtn.style.cssText="padding:4px 8px;margin-left:6px";
+    startupBtn.title="Use this channel on the next boot. This does not mark the channel good.";
+    startupBtn.addEventListener("click",()=>manualStartupRf(ch));
+    hopCell.appendChild(startupBtn);
+    tr.appendChild(hopCell);
+    body.appendChild(tr);
+    const col=document.createElement("div"); col.style.cssText="flex:1;min-width:18px;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center";
+    const h=noise?Math.max(6,Math.min(58,(noise-35)*1.15)):4;
+    col.title=noise?`Ch ${ch}: ambient peak -${noise} dBm`:`Ch ${ch}: no ambient sample`;
+    col.innerHTML=`<div style="font-size:9px;color:#8ba2c4">${noise?'-'+noise:''}</div><div style="width:100%;height:${h}px;background:currentColor;opacity:${noise?'.72':'.18'};border-radius:2px 2px 0 0"></div><div style="font-size:9px;margin-top:2px">${ch}</div>`;
+    bars.appendChild(col);
+  }
+  syncRfSurveyControls();
+}
+function syncRfSurveyControls(){
+  const locked=rfSurveyLockActive;
+  $("#rfSurvey").disabled=locked||rfBuilderActive;
+  for(const tr of $("#rfJournalBody").querySelectorAll("tr")){
+    for(const btn of tr.querySelectorAll("button[data-rf-hop]"))
+      btn.disabled=locked||rfHopPending||rfBuilderActive||btn.dataset.rfCurrent==="1"||rfHopWorkflowBlocked();
+    for(const btn of tr.querySelectorAll("button[data-rf-startup]"))
+      btn.disabled=locked||btn.dataset.rfStartupSelected==="1";
+  }
+  syncRfBuilderDisabled();
+}
+function rfBuilderWorkflowBlocked(){
+  // Waiting-for-neutral is the automatic, pre-E4 admission phase. Firmware can
+  // safely yield that phase to an explicit Builder request; every other live
+  // handoff phase remains non-preemptible.
+  return (rfHandoffActive||rfHopPending) && !(rfHandoffActive&&rfHandoffPhase===1);
+}
+function rfHopWorkflowBlocked(){
+  // Hop itself now uses the production automatic neutral-gated path, so an
+  // existing handoff remains authoritative until it reaches a terminal state.
+  return rfHandoffActive;
+}
+function syncRfBuilderDisabled(){
+  $("#rfBuilder").disabled=rfSurveyLockActive||rfBuilderSaving||rfBuilderStartPending||(!rfBuilderActive&&rfBuilderWorkflowBlocked());
+}
+function setRfHopButtonsDisabled(disabled){
+  rfHopPending=!!disabled;
+  for(const tr of $("#rfJournalBody").querySelectorAll("tr")){
+    for(const btn of tr.querySelectorAll("button[data-rf-hop]"))
+      btn.disabled=rfSurveyLockActive||rfHopPending||rfBuilderActive||btn.dataset.rfCurrent==="1"||rfHopWorkflowBlocked();
+  }
+  // Keep the Builder interlock synchronized with the local Hop latch as well
+  // as firmware handoff state. The terminal status frame arrives before the
+  // Hop finally block releases rfHopPending, so applyRfStatus() may have
+  // left this DOM button disabled using the old latch value.
+  syncRfBuilderDisabled();
+}
+function showRfHopTarget(ch){
+  $("#rfTargetCh").textContent=rfChLabel(ch);
+  for(const tr of $("#rfJournalBody").querySelectorAll("tr")){
+    const cell=tr.cells[0]; if(!cell) continue;
+    for(const badge of cell.querySelectorAll(".rf-target")) badge.remove();
+    if(+tr.dataset.rfCh===ch){
+      const badge=document.createElement("span"); badge.className="pill rf-target"; badge.textContent="target";
+      cell.append(" ",badge);
+    }
+  }
+}
+async function waitRfUiIdle(){
+  for(let i=0;i<100&&rfBusy&&dev;i++) await new Promise(resolve=>setTimeout(resolve,50));
+  return !!dev&&!rfBusy;
+}
+async function hopRf(ch){
+  if(!dev||isDongle||!rfCapable||!rfPoolChannels.has(ch)||rfSurveyLockActive||rfHopPending||rfBuilderActive||rfHopWorkflowBlocked()) return;
+  setRfHopButtonsDisabled(true);
+  rfHopRequestedCh=ch;
+  rfHopSawHandoff=false;
+  showRfHopTarget(ch);
+  $("#rfHandoffStatus").textContent=`Requesting Ch ${ch}`;
+  if(!(await waitRfUiIdle())){
+    $("#rfHandoffStatus").textContent=`Hop not started · Ch ${ch}`;
+    rfHopRequestedCh=0;
+    setRfHopButtonsDisabled(false);
+    return;
+  }
+  rfBusy=true;
+  let terminal=false, sawStatus=false;
+  try{
+    await waitIdle(); if(!dev) return;
+    await send([0x02,99,ch]);
+    let p=await readFrame(0xAD,13,256);
+    for(let i=0;i<1200&&dev;i++){
+      if(p){
+        sawStatus=true;
+        applyRfStatus(p);
+        const active=!!(p[1]&16), current=p[2];
+        if(active) rfHopSawHandoff=true;
+        if(!active&&current===ch){ $("#rfHandoffStatus").textContent=`Complete · Ch ${ch}`; terminal=true; break; }
+        if(!active&&rfHopSawHandoff){ $("#rfHandoffStatus").textContent=`Rolled back · Ch ${current}`; terminal=true; break; }
+        if(!active&&!rfHopSawHandoff&&i>=6){ $("#rfHandoffStatus").textContent=`Hop not started · stayed Ch ${current}`; terminal=true; break; }
+      }
+      await new Promise(resolve=>setTimeout(resolve,100));
+      await send([0x02,97,1]);
+      p=await readFrame(0xAD,13,256);
+    }
+    if(!terminal&&dev) $("#rfHandoffStatus").textContent=sawStatus?`Handoff still pending · Ch ${ch}`:"Hop status unavailable";
+    if(sawStatus) rfLastRefresh=Date.now();
+  }catch(e){
+    $("#rfHandoffStatus").textContent=`Hop error · Ch ${ch}`;
+    log("RF hop err: "+e.message);
+  }finally{
+    rfBusy=false;
+    rfHopRequestedCh=0;
+    setRfHopButtonsDisabled(rfHandoffActive);
+  }
+}
+
+async function manualStartupRf(ch){
+  if(!dev||isDongle||!rfCapable||!rfPoolChannels.has(ch)||rfSurveyLockActive) return;
+  if(!(await waitRfUiIdle())) return;
+  rfBusy=true;
+  try{
+    await waitIdle(); if(!dev) return;
+    await send([0x02,100,ch]);
+    const p=await readFrame(0xAD,13,256); if(p) applyRfStatus(p);
+    rfLastRefresh=Date.now();
+  }catch(e){ log("RF startup err: "+e.message); }
+  finally{ rfBusy=false; }
+}
+async function manualJournalBuilderRf(){
+  if(!dev||isDongle||!rfCapable||rfSurveyLockActive||rfBuilderSaving||rfBuilderStartPending) return;
+  if(rfBuilderActive){
+    if(!confirm("Cancel the RF Journal Builder? The current safe RF operation will finish, the puck will return to the channel that was active before the build, and the existing saved journal will be preserved.")) return;
+    if(!(await waitRfUiIdle())) return;
+    rfBusy=true;
+    try{
+      await waitIdle(); if(!dev) return;
+      await send([0x02,101,0]);
+      const p=await readFrame(0xAD,13,256); if(p) applyRfStatus(p);
+      rfLastRefresh=Date.now();
+    }catch(e){ log("RF journal builder cancel err: "+e.message); }
+    finally{ rfBusy=false; }
+    return;
+  }
+  const ok=confirm("RF Journal Builder\n\nPlace all connected controllers at approximately the farthest distance from the puck at which you normally use them, and leave them in their normal operating location during the test.\n\nThe puck will survey ambient RF, test all 14 recovery channels for about 60 seconds each, select the best channel, and save one completed RF journal record. The test takes roughly 15 minutes.\n\nStart the journal build?");
+  if(!ok) return;
+  rfBuilderStartPending=true;
+  $("#rfBuilderStatus").textContent="Starting…";
+  $("#rfBuilder").textContent="Starting…";
+  $("#rfBuilder").disabled=true;
+  if(!(await waitRfUiIdle())){
+    rfBuilderStartPending=false;
+    $("#rfBuilder").textContent="Build RF Journal";
+    syncRfBuilderDisabled();
+    return;
+  }
+  rfBusy=true;
+  let sawStatus=false;
+  try{
+    await waitIdle(); if(!dev) return;
+    await send([0x02,101,1]);
+    // Latch the Start button until firmware positively reports either an
+    // active Builder phase or a terminal failure. This closes the duplicate
+    // Start window while the first RF-status response is still propagating.
+    for(let i=0;i<20&&dev&&rfBuilderStartPending;i++){
+      const p=await readFrame(0xAD,13,256);
+      if(p){ sawStatus=true; applyRfStatus(p); }
+      if(!rfBuilderStartPending) break;
+      await new Promise(resolve=>setTimeout(resolve,100));
+      await send([0x02,97,1]);
+    }
+    if(rfBuilderStartPending){
+      rfBuilderStartPending=false;
+      $("#rfBuilderStatus").textContent=sawStatus?"Start outcome unknown · waiting for RF status":"Start status unavailable";
+      $("#rfBuilder").textContent="Build RF Journal";
+      syncRfBuilderDisabled();
+    }
+    if(sawStatus) rfLastRefresh=Date.now();
+  }catch(e){
+    rfBuilderStartPending=false;
+    $("#rfBuilder").textContent="Build RF Journal";
+    syncRfBuilderDisabled();
+    log("RF journal builder err: "+e.message);
+  }
+  finally{ rfBusy=false; }
+}
+async function manualSurveyRf(){
+  if(!dev||isDongle||!rfCapable||rfSurveyWatchActive||rfSurveyLockActive) return;
+  rfSurveyLockGeneration=rfSurveyGeneration;
+  rfSurveyLockActive=true;
+  rfSurveyWatchActive=true;
+  syncRfSurveyControls();
+  $("#rfSurveyState").textContent="requesting…";
+  if(!(await waitRfUiIdle())){
+    rfSurveyWatchActive=false;
+    rfSurveyLockActive=false;
+    syncRfSurveyControls();
+    return;
+  }
+  rfBusy=true;
+  const startGeneration=rfSurveyLockGeneration;
+  let sawSurvey=false, sawStatus=false, terminal=false;
+  try{
+    await waitIdle(); if(!dev) return;
+    await send([0x02,98,1]);
+    // A successful request is reflected immediately as pending/running in the
+    // dedicated RF-status frame. Poll faster than the 100-ms scanner step so
+    // per-channel progress and retries remain visible.
+    for(let i=0;i<400&&dev;i++){
+      const p=await readFrame(0xAD,13,256);
+      if(p){
+        sawStatus=true;
+        const flags=p[1], running=!!(flags&1), pending=!!(flags&2);
+        const generation=p[7]|(p[8]<<8);
+        applyRfStatus(p);
+        if(running||pending) sawSurvey=true;
+        if(rfSurveyFailure){ terminal=true; break; }
+        if(!running&&!pending&&generation!==startGeneration){ terminal=true; break; }
+        if(!running&&!pending&&!sawSurvey&&i>=2){
+          rfSurveyLockActive=false;
+          $("#rfSurveyState").textContent="Survey not started · RF workflow busy";
+          terminal=true;
+          break;
+        }
+      }
+      await new Promise(resolve=>setTimeout(resolve,50));
+      await send([0x02,97,1]);
+    }
+    if(!terminal){
+      if(rfSurveyRunning||rfSurveyPending) $("#rfSurveyState").textContent=rfSurveyRunning?"Survey still active":"Survey queued";
+      else if(!sawStatus){
+        rfSurveyLockActive=false;
+        $("#rfSurveyState").textContent="Survey status unavailable";
+      }
+    }
+    if(sawStatus) rfLastRefresh=Date.now();
+  }catch(e){
+    rfSurveyLockActive=false;
+    $("#rfSurveyState").textContent="Survey error";
+    log("RF survey err: "+e.message);
+  }
+  finally{
+    rfBusy=false;
+    rfSurveyWatchActive=false;
+    syncRfSurveyControls();
+  }
+}
+async function refreshRfStatus(survey=false){
+  if(!dev||isDongle||!rfCapable||rfBusy) return;
+  rfBusy=true;
+  try{
+    await waitIdle(); if(!dev) return;
+    await send([0x02,survey?98:97,1]);
+    const p=await readFrame(0xAD,13,256); if(p) applyRfStatus(p);
+    rfLastRefresh=Date.now();
+  }catch(e){ log("RF status err: "+e.message); }
+  finally{ rfBusy=false; }
 }
 
 // ---- per-slot tab state ----
@@ -881,6 +1304,7 @@ async function openDevice(d){
     $("#connectBtn").textContent="Reconnect";
     $("#panel").classList.remove("hide");
     applyDeviceProfile(); // show the controller UI + hide puck-only cards (or vice-versa)
+    cloneRender();
     log(`connected — ${kind} ${dev.serialNumber||"?"} (VID ${dev.vendorId.toString(16)} PID ${dev.productId.toString(16)} iface ${ifNum})`);
     // resume a stability test across the reset: re-arm the firmware buzz and start timing the next run
     // (puck-only: the dongle has no stability-test / haptic path)
@@ -932,6 +1356,7 @@ function onGone(){
   window._wedgeEp=false; window._wedgePeak=0; // re-arm the live wedge logger for the next wedge episode
   window._lastBlobTs=0; window._hbLostEp=false; // re-arm the heartbeat watchdog (don't fire on a stale pre-reset timestamp)
   polling=false; dev=null; tabInited=false; // re-default the config tab to the mode on next connect
+  cloneRender();
   checkUpdateNotice(); // no device = no notice
   $("#connState").textContent="reconnecting…"; $("#connState").className="pill dn";
   $("#panel").classList.add("hide");
@@ -981,7 +1406,7 @@ function applyBlob(p){
   // Lazy, capability-gated lizard-map load: only after a blob proves the puck speaks v16+ (the op-0x11 dump).
   // On older firmware 0x11 is dropped silently and readLizard() would block the endpoint forever, so we must
   // NEVER send it blind at connect. One-shot per connection (reset in openDevice).
-  if(!lizardLoaded && p[0]>=16){ lizardLoaded=true; loadLizard(); }
+  if(!lizardLoaded && p[0]>=16){ lizardLoaded=true; lzV2Load(); }
   const mode=p[1], mDiv=p[2], mFric=p[3]; // p[4..11] mirror the active type (per-type block below is authoritative)
   const slot=p[10], up=p[11], f1=(p[12]|(p[13]<<8));
   const newps=(p.length>16?(p[15]|(p[16]<<8)):0), persistMode=(p.length>22?p[22]:0);
@@ -1011,11 +1436,17 @@ function applyBlob(p){
   // Rumble shaping (protocol v21): firmware p[53]/p[195] = payload p[51]/p[193]. Strength is percent/2.
   const rumbleCap=(p[0]>=21 && p.length>193);
   const rumbleScale=rumbleCap?p[51]*2:200, rumbleStyle=rumbleCap?p[193]:0;
-  // Grip limiter + HD trackpad strength (protocol v22): firmware p[199]/p[200] = payload p[197]/p[198].
-  const pcmCap=(p[0]>=22 && p.length>198);
-  g_perTypeHaptics=(pcmCap && p.length>206);
-  g_perTypeStrength=(pcmCap && p.length>211);
+  // Grip limiter + HD trackpad strength (protocol v23): firmware p[200]/p[201] = payload p[198]/p[199].
+  const pcmCap=(p[0]>=23 && p.length>199);
+  g_perTypeHaptics=(pcmCap && p.length>207);
+  g_perTypeStrength=(pcmCap && p.length>212);
   const rssi=(p.length>37?p[37]:0);
+  // Reconciled firmware advertises RF recovery in the append-only v22 byte (firmware p[196] -> JS p[194]).
+  // Keep the old p[179] check so the same panel can still talk to the hardware-validated pre-reconcile RF build.
+  rfCapable=(p.length>194 && p[194]===0x52) || (p.length>179 && p[179]===0x52);
+  const rfCard=$("#rfRecoveryCard"); if(rfCard) rfCard.classList.toggle("hide", !rfCapable);
+  if(rfCapable&&Date.now()-rfLastRefresh>(rfHandoffActive||rfHopPending||rfSurveyRunning||rfSurveyPending?100:rfBuilderActive?500:2000)) refreshRfStatus(false);
+
 
   // per-slot link status (protocol v8, p.length >= 73)
   const hasSlotsData = p.length >= 73;
@@ -1212,50 +1643,50 @@ function applyBlob(p){
       rec.pad.textContent=pad?"on":"off"; rec.pad.classList.toggle("active",!!pad);
       rec.rumble.textContent=rum?"on":"off"; rec.rumble.classList.toggle("active",!!rum);
       if(rec.audioHaptics){
-        const audOn = (p.length>195)?(p[195]!==0):true;
+        const audOn = (p.length>196)?(p[196]!==0):true;
         rec.audioHaptics.textContent=audOn?"on":"off";
         rec.audioHaptics.classList.toggle("active",audOn);
       }
       if(rec.audioStyle){
-        // per-type bytes (fw p[205+et] = payload p[203+et]); older firmware has the DualSense's only
-        const raw = g_perTypeHaptics ? p[203+et] : (et===3 ? p[196] : 3);
+        // per-type bytes (fw p[206+et] = payload p[204+et]); older firmware has the DualSense's only
+        const raw = g_perTypeHaptics ? p[204+et] : (et===3 ? p[197] : 3);
         const v = raw<=3 ? raw : 3;
         if(document.activeElement!==rec.audioStyle) rec.audioStyle.value=v;
         // older firmware has no Switch style
         rec.audioStyle.disabled = !g_perTypeHaptics && et!==3;
       }
       if(rec.strength){
-        // per-type bytes (fw p[210+et] = payload p[208+et]); older firmware only has the active type's
-        const hdOn = p.length>207 ? p[207]!==0 : true, def = (et===1 && hdOn) ? 100 : 200;
+        // per-type bytes (fw p[211+et] = payload p[209+et]); older firmware only has the active type's
+        const hdOn = p.length>208 ? p[208]!==0 : true, def = (et===1 && hdOn) ? 100 : 200;
         for(const o of rec.strength.options) o.textContent=o.value+"%"+(+o.value===def?" (default)":"");
-        const v = g_perTypeStrength ? p[208+et]*2 : (et===activeEt ? rumbleScale : null);
+        const v = g_perTypeStrength ? p[209+et]*2 : (et===activeEt ? rumbleScale : null);
         // a strength set from the console can land between the presets -- show the nearest one
         if(v!==null && document.activeElement!==rec.strength) rec.strength.value=nearest(RUMBLE_SCALES,v);
         rec.strength.disabled = !rumbleCap || (!g_perTypeStrength && et!==activeEt);
       }
       if(rec.hdPad){
-        if(pcmCap && document.activeElement!==rec.hdPad) rec.hdPad.value=nearest(HD_PAD_SCALES,p[198]*2);
+        if(pcmCap && document.activeElement!==rec.hdPad) rec.hdPad.value=nearest(HD_PAD_SCALES,p[199]*2);
         rec.hdPad.disabled = !pcmCap;
       }
       if(rec.hdRumble){
-        // payload p[207] = firmware p[209]; older firmware has no toggle and always renders HD
-        const cap=p.length>207, on=cap?(p[207]!==0):true;
+        // payload p[208] = firmware p[210]; older firmware has no toggle and always renders HD
+        const cap=p.length>208, on=cap?(p[208]!==0):true;
         rec.hdRumble.style.display=rec.hdRumbleLbl.style.display=cap?"":"none";
         rec.hdRumble.textContent=on?"on":"off";
         rec.hdRumble.classList.toggle("active",on);
       }
       if(rec.knee){
-        const k = g_perTypeHaptics ? p[199+et] : p[197];
+        const k = g_perTypeHaptics ? p[200+et] : p[198];
         if(document.activeElement!==rec.knee) rec.knee.value=HAPTIC_KNEES.reduce((a,b)=>Math.abs(b-k)<Math.abs(a-k)?b:a);
         rec.knee.disabled = !pcmCap;
       }
       // with HD rumble off the Switch plays plain rumble, which the style and limiter don't touch
-      if(rec.hdRumble && p.length>207 && p[207]===0){
+      if(rec.hdRumble && p.length>208 && p[208]===0){
         if(rec.audioStyle) rec.audioStyle.disabled=true;
         if(rec.knee) rec.knee.disabled=true;
       }
-      if(rec.audioGain && p.length>194){
-        const gain = p[194]*2;
+      if(rec.audioGain && p.length>195){
+        const gain = p[195]*2;
         if(document.activeElement!==rec.audioGain){
           rec.audioGain.value = gain;
           rec.audioGainV.textContent = (gain===0)?"Auto":gain + "%";
@@ -1299,7 +1730,7 @@ function setSlider(id,v){ const el=$("#"+id); if(document.activeElement!==el){ e
 
 let inflight=false;
 async function refresh(){
-  if(!dev||inflight||capturing||backupBusy||flightBusy||lizardBusy) return; inflight=true;
+  if(!dev||inflight||capturing||backupBusy||flightBusy||lizardBusy||rfBusy) return; inflight=true;
   // try/finally: an exception anywhere in here (applyBlob included) must never leave inflight latched true --
   // that would silently kill all future polls and read as a fake "heartbeat lost".
   try{
@@ -1529,6 +1960,139 @@ async function importBackup(file){
     log("import FAILED — "+e.message);
     modalDone(false, e.message+" — the import stopped partway; reconnect and retry.", "Import failed");
   } finally { backupBusy=false; }
+}
+
+// ---- Clone from an official Valve puck ----
+// The Valve puck answers the bond read Steam itself uses: SET feature report 2 [0xA3], then GET report 2 ->
+// [0xA3][0x18][24-byte rec] for that interface's slot (one vendor interface per slot, plus one non-slot
+// interface that reads back empty). Only the 8 UUID bytes matter on-air -- the controller connects to any puck
+// beaconing its bonded UUID pair -- so the copied record makes this OpenPuck a drop-in for the Valve one.
+// The Valve puck is a plain HID device, so it is reached over WebHID: WebUSB cannot claim HID interfaces.
+const VALVE_PUCK_HID={vendorId:0x28DE, productId:0x1304, usagePage:0xFF00};
+async function readOfficialBonds(){
+  // the chooser grants every interface of the picked puck at once, one HIDDevice per interface
+  const picked=await navigator.hid.requestDevice({filters:[VALVE_PUCK_HID]});
+  if(!picked.length) return null;
+  const recs=[];
+  for(const d of picked){
+    if(!d.collections.some(c=>c.usagePage===0xFF00)) continue;
+    try{
+      if(!d.opened) await d.open();
+      const q=new Uint8Array(63); q[0]=0xA3;
+      await d.sendFeatureReport(2, q);
+      const v=await d.receiveFeatureReport(2);
+      const b=new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+      // Chrome may or may not keep the report-id byte at the front of a feature report
+      const o=(b[0]===0xA3) ? 0 : (b[1]===0xA3 ? 1 : -1);
+      if(o<0 || b[o+1]!==0x18 || b.length<o+26) continue;
+      const rec=Array.from(b.slice(o+2, o+26));
+      if(rec.slice(0,8).every(x=>x===0)) continue;
+      if(!recs.some(r=>r.slice(0,8).every((x,i)=>x===rec[i]))) recs.push(rec);
+    }catch(e){ /* an interface without the bond command; the slot interfaces still answer */ }
+    finally{ try{ if(d.opened) await d.close(); }catch(e){} }
+  }
+  return recs;
+}
+// Read pairings are held in localStorage between the two steps: with one USB port the official puck is
+// unplugged before the OpenPuck goes in, and a page reload in between must not lose them.
+const CLONE_KEY="opk-clone-recs";
+function cloneLoad(){
+  try{ const a=JSON.parse(localStorage.getItem(CLONE_KEY)||"[]"); return a.map(hexDec).filter(r=>r.length===24); }
+  catch(e){ return []; }
+}
+function cloneRender(){
+  // Inside the Backup & clone card while an OpenPuck is connected; standalone above the (hidden) panel otherwise,
+  // so step 1 still works with only the official puck plugged in.
+  const home=dev ? $("#backupCard") : $("#cloneHome"), sec=$("#cloneSec");
+  if(sec.parentNode!==home) home.appendChild(sec);
+  $("#cloneHome").classList.toggle("hide", !!dev);
+  const recs=cloneLoad(), st=$("#cloneStatus");
+  $("#cloneWrite").disabled = !recs.length || !dev || isDongle;
+  $("#cloneForget").classList.toggle("hide", !recs.length);
+  if(!recs.length) st.textContent="Nothing read yet.";
+  else if(!dev) st.textContent="Holding "+recs.length+" pairing(s) from the official puck. Unplug it, plug in the OpenPuck and click Connect.";
+  else if(isDongle) st.textContent="Holding "+recs.length+" pairing(s) — connect an OpenPuck (not a ReversePuck dongle) to write them.";
+  else st.textContent="Holding "+recs.length+" pairing(s) — ready to write to OpenPuck "+(dev.serialNumber||"?")+".";
+}
+// This OpenPuck's slots via the 0x09 bond dump (null = firmware too old to export, so too old to import too).
+// Caller holds backupBusy.
+async function openPuckSlots(){
+  await send([0x09]);
+  let bp=null; for(let t=0;t<8 && !bp;t++) bp=await readFrame(0xA7, 2+4*24);
+  if(!bp) return null;
+  const slots=[];
+  for(let s=0;s<4;s++) slots.push(((bp[1]>>s)&1) ? Array.from(bp.slice(2+s*24, 2+s*24+24)) : null);
+  return slots;
+}
+const sameBondKey=(a,b)=>a.slice(0,8).every((x,i)=>x===b[i]);
+const PICK_HINT=" — with both pucks plugged in the picker lists two identical \"Steam Controller Puck\" entries; read again and pick the other one.";
+async function cloneRead(){
+  if(!navigator.hid){ log("clone: this browser has no WebHID — use Chrome or Edge"); return; }
+  let recs;
+  try{ recs=await readOfficialBonds(); }
+  catch(e){ if(e.name!=="NotFoundError") log("clone: couldn't read the official puck — "+e.message); return; }
+  if(!recs) return;
+  if(!recs.length){
+    log("clone: no controller pairings found on the selected puck"+(dev && !isDongle ? PICK_HINT : ""));
+    return;
+  }
+  // Both pucks share VID/PID and name, so the picker can't tell them apart: catch picking the connected OpenPuck.
+  if(dev && !isDongle){
+    backupBusy=true; await waitIdle();
+    let slots=null;
+    try{ slots=await openPuckSlots(); } finally { backupBusy=false; }
+    if(slots && recs.every(r=>slots.some(x=>x && sameBondKey(x,r)))){
+      log("clone: those are this OpenPuck's own pairings (or they're already cloned)"+PICK_HINT);
+      return;
+    }
+  }
+  localStorage.setItem(CLONE_KEY, JSON.stringify(recs.map(hexEnc)));
+  log("clone: read "+recs.length+" pairing(s) from the official puck");
+  cloneRender();
+}
+async function cloneWrite(){
+  const recs=cloneLoad();
+  if(!dev || !recs.length) return;
+  backupBusy=true; await waitIdle();
+  try{
+    // the 0x09 bond dump doubles as the capability probe: firmware that can't export can't import (0x0D) either
+    const slots=await openPuckSlots();
+    if(!slots){ log("clone ABORTED — this OpenPuck's firmware is too old for bond import; update it first"); return; }
+    // also what happens when step 1 read this OpenPuck itself (same VID/PID as the Valve puck)
+    const todo=recs.filter(r=>!slots.some(x=>x && sameBondKey(x,r)));
+    if(!todo.length){
+      log("clone: those pairings are already on this OpenPuck — nothing to do");
+      localStorage.removeItem(CLONE_KEY); cloneRender(); return;
+    }
+    const free=[0,1,2,3].filter(s=>!slots[s]);
+    if(todo.length>free.length){
+      log("clone: needs "+todo.length+" free slot(s) but this OpenPuck has "+free.length+" — remove a pairing first");
+      return;
+    }
+    if(!confirm("Copy "+todo.length+" controller pairing(s) onto the CONNECTED OpenPuck (serial "+(dev.serialNumber||"?")
+      +")?\n\nExisting pairings and settings are kept. The OpenPuck reboots afterwards.\n\n"
+      +"Keep the official puck unplugged while using this one: with both powered, they compete for the same controller.")) return;
+    modalOpen("Clone from official puck");
+    try{
+      for(let i=0;i<todo.length;i++){
+        modalStage("Writing pairing "+(i+1)+" of "+todo.length, Math.floor(i*100/(todo.length+1)));
+        await send([0x0D, free[i], 1, ...todo[i]]); await readBlob();
+      }
+      modalStage("Committing + rebooting", 99);
+      // 0xFF = keep the current mode; the reboot regenerates the session addresses from the new bonds
+      await send([0x0E, 0xFF]);
+      localStorage.removeItem(CLONE_KEY);
+      log("cloned "+todo.length+" pairing(s) into slot(s) "+free.slice(0,todo.length).join(",")+" — rebooting");
+      modalDone(true, "Pairings copied — the OpenPuck is rebooting. Turn the controller on and it connects here.");
+    }catch(e){
+      log("clone FAILED — "+e.message);
+      modalDone(false, e.message+" — reconnect and retry.", "Clone failed");
+    }
+  } finally {
+    // polling was paused across the confirm dialog; restart the heartbeat clock so the pause doesn't read as a wedge
+    window._lastBlobTs=Date.now();
+    backupBusy=false; cloneRender();
+  }
 }
 async function setField(field,value){
   await send([0x02, field, value&0xff]); const p=await readBlob(); if(p) applyBlob(p);
@@ -2368,6 +2932,10 @@ for(const t of document.querySelectorAll("#mainTabs .slot-tab")){
 $("#backupExport").onclick=exportBackup;
 $("#backupImport").onclick=()=>$("#backupFile").click();
 $("#backupFile").onchange=async(e)=>{ const f=e.target.files[0]; if(f) await importBackup(f); e.target.value=""; };
+$("#cloneRead").onclick=cloneRead;
+$("#cloneWrite").onclick=cloneWrite;
+$("#cloneForget").onclick=()=>{ localStorage.removeItem(CLONE_KEY); cloneRender(); };
+cloneRender();
 $("#capDl").onclick=downloadCap;
 $("#capStart").onclick=startCapture;
 $("#capStop").onclick=stopCapture;
@@ -2441,6 +3009,8 @@ for(const id of ["mDiv","mFric"]){
 $("#rumbleTest").onclick=async()=>{ if(dev){ await send([0x16]); log("test rumble sent (style "+$("#rumbleStyle").value+")"); } };
 $("#rumbleStyle").addEventListener("change", ()=>setField(39, +$("#rumbleStyle").value));
 $("#swGyroMap").addEventListener("change", ()=>setField(38, +$("#swGyroMap").value));
+$("#rfSurvey").onclick=()=>manualSurveyRf();
+$("#rfBuilder").onclick=()=>manualJournalBuilderRf();
 for(const sel of document.querySelectorAll("select.chord")){
   sel.addEventListener("change", ()=>setField(CHORD_FIELD[+sel.dataset.i], +sel.value));
 }
@@ -2457,6 +3027,212 @@ updateUf2UI();
 updateFwGate(); // start gated: stays inert until the first status blob proves the firmware speaks v15+
 if(!("usb" in navigator)) $("#connectBtn").outerHTML='<b style="color:var(--bad)">WebUSB not supported — use Chrome or Edge.</b>';
 else autoConnect(); // reopen an already-authorized puck on load, no picker (first-ever connect still needs the button)
+
+// OPENPUCK_LIZARD_MAP_V2_R_STICK
+// Binding-v2 format appeared at protocol 20. Protocol 21 (upstream #224)
+// claimed 0x16 for rumble-test, so the v2 map transport shifts one slot.
+const LZ_MAP_V2_PROTOCOL = 20;
+const LZ_MAP_V2_SHIFTED_OPS_PROTOCOL = 21;
+const LZ_V1_LOW_MASK = 0x0fffffff;
+const lzPow2 = bit => Math.pow(2, bit);
+
+function lzReadLE(d,o,n){
+	let v=0;
+	for(let i=n-1;i>=0;i--) v=v*256+d[o+i];
+	return v;
+}
+function lzWriteLE(out,v,n){
+	v=Number(v)||0;
+	for(let i=0;i<n;i++) out.push(Math.floor(v/Math.pow(2,8*i))&0xff);
+}
+function lzLegacyMaskToV2(v){
+	v=Number(v)>>>0;
+	let out=v&LZ_V1_LOW_MASK;
+	if(v&0x10000000) out+=lzPow2(32);
+	if(v&0x20000000) out+=lzPow2(33);
+	if(v&0x40000000) out+=lzPow2(34);
+	if(v&0x80000000) out+=lzPow2(35);
+	return out;
+}
+function lzV2MaskToLegacy(v){
+	v=Number(v)||0;
+	let out=(v%lzPow2(28))>>>0;
+	if(Math.floor(v/lzPow2(32))&1) out|=0x10000000;
+	if(Math.floor(v/lzPow2(33))&1) out|=0x20000000;
+	if(Math.floor(v/lzPow2(34))&1) out|=0x40000000;
+	if(Math.floor(v/lzPow2(35))&1) out|=0x80000000;
+	return out>>>0;
+}
+function lzPanelV2(){ return !!(lastP&&lastP[0]>=LZ_MAP_V2_PROTOCOL); }
+function lzV2Ops(){
+	const shifted=!!(lastP&&lastP[0]>=LZ_MAP_V2_SHIFTED_OPS_PROTOCOL);
+	return shifted
+		? {dump:0x17,set:0x18,save:0x19,reset:0x1A}
+		: {dump:0x16,set:0x17,save:0x18,reset:0x19};
+}
+function lzHasRStickVirtual(v){ return Number(v||0)>=lzPow2(36); }
+
+function lzV2Select(options,value,onchange,noneLabel){
+	const s=document.createElement("select");
+	if(noneLabel!==undefined){
+		const o=document.createElement("option"); o.value="0"; o.textContent=noneLabel; s.appendChild(o);
+	}
+	for(const [v,label] of options){
+		const o=document.createElement("option"); o.value=String(v); o.textContent=label; s.appendChild(o);
+	}
+	s.value=String(Number(value)||0);
+	s.onchange=()=>onchange(Number(s.value));
+	return s;
+}
+function lzV2Render(){
+	const host=document.getElementById("lizardList");
+	if(!host) return;
+	host.innerHTML="";
+	lizardBindings.forEach((b,idx)=>{
+		if(!b.od) b.od=[0,0,0,0,0,0,0];
+		while(b.od.length<7) b.od.push(0);
+		const box=document.createElement("div");
+		box.style.cssText="border:1px solid #232a3a;border-radius:8px;padding:9px;margin:7px 0;background:#0e1017";
+		const top=document.createElement("div");
+		top.className="row"; top.style.flexWrap="wrap";
+
+		const trig=lzV2Select(LZ_BTNS,b.trig,v=>b.trig=v,"— trigger —");
+		const hold=lzV2Select(LZ_BTNS,b.hold,v=>b.hold=v,"— no hold —");
+		const types=Object.keys(LZ_OUT_LABELS).map(Number).map(v=>[v,LZ_OUT_LABELS[v]]);
+		const typ=lzV2Select(types,b.outType,v=>{b.outType=v;lzV2Render();});
+		top.append("Input ",trig," Hold ",hold," → ",typ);
+
+		const del=document.createElement("button"); del.textContent="Remove";
+		del.style.marginLeft="auto";
+		del.onclick=()=>{lizardBindings.splice(idx,1);lzV2Render();};
+		top.appendChild(del); box.appendChild(top);
+
+		const detail=document.createElement("div");
+		detail.className="row"; detail.style.cssText="margin-top:7px;flex-wrap:wrap";
+		if(b.outType===LZO.KBD){
+			detail.append("Modifiers ");
+			for(const [bit,label] of LZ_MODS){
+				const c=document.createElement("input"); c.type="checkbox"; c.checked=!!(b.od[0]&bit);
+				c.onchange=()=>{ if(c.checked)b.od[0]|=bit;else b.od[0]&=~bit; };
+				const l=document.createElement("label"); l.style.marginRight="7px"; l.append(c," "+label); detail.appendChild(l);
+			}
+			for(let k=1;k<7;k++){
+				detail.append(" Key "+k+" ");
+				detail.appendChild(lzV2Select(LZ_KEYS,b.od[k],v=>b.od[k]=v));
+			}
+		}else if(b.outType===LZO.MBTN){
+			detail.append("Mouse ");
+			detail.appendChild(lzV2Select(LZ_MBTNS,b.od[0],v=>b.od[0]=v));
+		}else if(b.outType===LZO.AXIS){
+			detail.append("Source ");
+			detail.appendChild(lzV2Select(LZ_AXIS_SRC,b.od[0],v=>{b.od[0]=v;lzV2Render();}));
+			if(b.od[0]===2){
+				detail.append(" Gyro activation ");
+				detail.appendChild(lzV2Select(LZ_GYRO_ACT,b.od[1],v=>b.od[1]=v));
+			}
+			trig.disabled=true; hold.disabled=true;
+		}else if(b.outType===LZO.SCROLL){
+			detail.append("Source: Left trackpad");
+			b.od[0]=0; trig.disabled=true; hold.disabled=true;
+		}else if(b.outType===LZO.CONSUMER){
+			detail.append("Media ");
+			detail.appendChild(lzV2Select(LZ_CONSUMER,b.od[0],v=>b.od[0]=v));
+		}
+		box.appendChild(detail); host.appendChild(box);
+	});
+}
+
+async function lzV2ReadMap(op){
+	await send([op]);
+	const recSize=lzPanelV2()?24:16;
+	let buf=[];
+	let expected=0;
+	for(;;){
+		const r=await dev.transferIn(epIn,256);
+		if(r.status!=="ok") throw new Error("lizard-map read failed");
+		const d=new Uint8Array(r.data.buffer);
+		for(const x of d) buf.push(x);
+		if(!expected){
+			let start=-1;
+			for(let i=0;i+1<buf.length;i++){
+				if(buf[i]===0xAA && buf[i+1]<=LZ_MAX){ start=i; break; }
+			}
+			if(start<0){ if(buf.length>1024)buf=[]; continue; }
+			if(start) buf=buf.slice(start);
+			expected=2+buf[1]*recSize;
+		}
+		if(buf.length>=expected) break;
+	}
+	const count=buf[1], out=[];
+	for(let i=0;i<count;i++){
+		const q=2+i*recSize, od=[];
+		for(let k=0;k<7;k++) od.push(buf[q+1+k]||0);
+		const trig=recSize===24?lzReadLE(buf,q+8,8):lzLegacyMaskToV2(lzReadLE(buf,q+8,4));
+		const hold=recSize===24?lzReadLE(buf,q+16,8):lzLegacyMaskToV2(lzReadLE(buf,q+12,4));
+		out.push({outType:buf[q]||0,od,trig,hold});
+	}
+	return out;
+}
+async function lzV2Load(){
+	if(lizardBusy||!dev)return;
+	lizardBusy=true;
+	try{
+		const ops=lzV2Ops();
+		lizardBindings=await lzV2ReadMap(lzPanelV2()?ops.dump:0x11);
+		lzV2Render();
+		const st=document.getElementById("lzStatus");
+		if(st)st.textContent="loaded "+lizardBindings.length+" binding(s)"+(lzPanelV2()?" · map v2":" · legacy map");
+	}catch(e){ log("lizard load failed: "+e.message); }
+	finally{lizardBusy=false;}
+}
+async function lzV2Save(){
+	if(lizardBusy||!dev)return;
+	lizardBusy=true;
+	try{
+		const v2=lzPanelV2(), ops=lzV2Ops();
+		if(!v2&&lizardBindings.some(b=>lzHasRStickVirtual(b.trig)||lzHasRStickVirtual(b.hold)))
+			throw new Error("R-stick directions require firmware protocol v20+");
+		const count=Math.min(LZ_MAX,lizardBindings.length);
+		await send([0x13,count]);
+		for(let i=0;i<count;i++){
+			const b=lizardBindings[i], cmd=[v2?ops.set:0x12,i,b.outType||0];
+			for(let k=0;k<7;k++)cmd.push((b.od&&b.od[k])||0);
+			if(v2){lzWriteLE(cmd,b.trig,8);lzWriteLE(cmd,b.hold,8);}
+			else{lzWriteLE(cmd,lzV2MaskToLegacy(b.trig),4);lzWriteLE(cmd,lzV2MaskToLegacy(b.hold),4);}
+			await send(cmd);
+		}
+		lizardBindings=await lzV2ReadMap(v2?ops.save:0x14);
+		lzV2Render();
+		const st=document.getElementById("lzStatus"); if(st)st.textContent="saved "+count+" binding(s)";
+	}catch(e){const st=document.getElementById("lzStatus");if(st)st.textContent="save failed: "+e.message;log("lizard save failed: "+e.message);}
+	finally{lizardBusy=false;}
+}
+async function lzV2Reset(){
+	if(lizardBusy||!dev)return;
+	lizardBusy=true;
+	try{
+		const ops=lzV2Ops();
+		lizardBindings=await lzV2ReadMap(lzPanelV2()?ops.reset:0x15);
+		lzV2Render();
+		const st=document.getElementById("lzStatus");if(st)st.textContent="reset to defaults";
+	}catch(e){log("lizard reset failed: "+e.message);}
+	finally{lizardBusy=false;}
+}
+function lzV2InstallHandlers(){
+	for(const id of ["lzAdd","lzSave","lzReload","lzReset"]){
+		const old=document.getElementById(id); if(!old)continue;
+		const fresh=old.cloneNode(true); old.replaceWith(fresh);
+	}
+	const add=document.getElementById("lzAdd");
+	const save=document.getElementById("lzSave");
+	const reload=document.getElementById("lzReload");
+	const reset=document.getElementById("lzReset");
+	if(add)add.onclick=()=>{if(lizardBindings.length<LZ_MAX){lizardBindings.push({outType:1,od:[0,0,0,0,0,0,0],trig:0,hold:0});lzV2Render();}};
+	if(save)save.onclick=lzV2Save;
+	if(reload)reload.onclick=lzV2Load;
+	if(reset)reset.onclick=lzV2Reset;
+}
+lzV2InstallHandlers();
 </script>
 </body>
 </html>
