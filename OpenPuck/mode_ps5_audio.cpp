@@ -282,7 +282,7 @@ static void processAudioSamples(const uint8_t *data, uint32_t len)
 	static Biquad s_aaL[2] = {}, s_aaR[2] = {};
 	static uint8_t s_dec = 0, s_fill = 0;
 	static uint16_t s_queued = 0;
-	static uint8_t s_pcmL[PCM_SAMPLES], s_pcmR[PCM_SAMPLES];
+	static uint8_t s_frame[PCM_FRAME_LEN];
 	static HapticLift s_lift = {};
 	uint8_t waveMask = s_waveMask;
 	float waveScale = s_waveScale;
@@ -322,13 +322,15 @@ static void processAudioSamples(const uint8_t *data, uint32_t len)
 		float wl = al * waveScale, wr = ar * waveScale;
 		float lift = hapticLiftGain(
 			&s_lift, fabsf(wl) > fabsf(wr) ? fabsf(wl) : fabsf(wr));
-		s_pcmL[s_fill] = hapticUlaw(hapticSoftLimit(wl * lift));
-		s_pcmR[s_fill] = hapticUlaw(hapticSoftLimit(wr * lift));
+		PCM_FRAME_L(s_frame)
+		[s_fill] = hapticUlaw(hapticSoftLimit(wl * lift));
+		PCM_FRAME_R(s_frame)
+		[s_fill] = hapticUlaw(hapticSoftLimit(wr * lift));
 		if (++s_fill < hapticPcmFrameLen(s_queued, PCM_RATE_HZ))
 			continue;
 		for (uint8_t b = 0; b < NSLOT; b++)
 			if (waveMask & (1u << b))
-				hapticPcmSend(b, s_pcmL, s_pcmR, s_fill);
+				hapticPcmSend(b, s_frame, s_fill);
 		if (s_queued < 1000u)
 			s_queued += s_fill;
 		s_fill = 0;

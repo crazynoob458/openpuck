@@ -860,7 +860,7 @@ struct HdPcmState {
 	bool on;
 	bool quiet[2];
 	HapticLift lift;
-	uint8_t l[PCM_SAMPLES], r[PCM_SAMPLES];
+	uint8_t frame[PCM_FRAME_LEN];
 };
 static HdPcmState g_hdPcmState[NSLOT];
 
@@ -936,10 +936,12 @@ static void hdPcmRun(uint8_t slot, const uint16_t bands[4],
 							 fabsf(v[1]);
 		float lift = hapticLiftGain(&p.lift, peak);
 		// the two bands can sum past full scale
-		p.l[p.fill] = hapticUlaw(hapticSoftLimit(v[0] * lift));
-		p.r[p.fill] = hapticUlaw(hapticSoftLimit(v[1] * lift));
+		PCM_FRAME_L(p.frame)
+		[p.fill] = hapticUlaw(hapticSoftLimit(v[0] * lift));
+		PCM_FRAME_R(p.frame)
+		[p.fill] = hapticUlaw(hapticSoftLimit(v[1] * lift));
 		if (++p.fill == hapticPcmFrameLen(p.queued, PCM_RATE_HZ)) {
-			hapticPcmSend(slot, p.l, p.r, p.fill);
+			hapticPcmSend(slot, p.frame, p.fill);
 			if (p.queued < 1000u)
 				p.queued += p.fill;
 			p.fill = 0;
@@ -1165,22 +1167,18 @@ void hapticPcmStart(uint8_t slot)
 	g_pcmSendT0[slot] = 0;
 }
 
-bool hapticPcmSend(uint8_t slot, const uint8_t *left, const uint8_t *right,
-		   uint8_t n)
+bool hapticPcmSend(uint8_t slot, uint8_t *frame, uint8_t n)
 {
 	if (slot >= NSLOT || haptic82Blocked(slot) || !hapticLinkUp(slot))
 		return false;
-	uint8_t p[1 + 2 * PCM_SAMPLES];
-	p[0] = n;
-	memcpy(p + 1, left, PCM_SAMPLES);
-	memcpy(p + 1 + PCM_SAMPLES, right, PCM_SAMPLES);
+	frame[0] = n;
 	g_pcmDiag.made++;
 	uint32_t nowUs = micros();
 	if (g_pcmMadeUs[slot])
 		g_pcmDiag.madeGap[pcmDiagBucket(nowUs - g_pcmMadeUs[slot])]++;
 	g_pcmMadeUs[slot] = nowUs | 1;
 	g_pcmMadeMs[slot] = millis();
-	return relayEnqueue(0x88, p, sizeof p, true, slot);
+	return relayEnqueue(0x88, frame, PCM_FRAME_LEN, true, slot);
 }
 
 uint8_t hapticUlaw(float x)

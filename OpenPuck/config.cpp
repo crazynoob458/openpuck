@@ -238,10 +238,7 @@ static bool g_cfgSavePending;
 
 void saveCfgSoon()
 {
-	if (ps5AudioStreaming())
-		g_cfgSavePending = true;
-	else
-		saveCfg();
+	g_cfgSavePending = true;
 }
 
 void cfgSaveTask()

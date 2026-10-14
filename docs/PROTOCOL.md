@@ -419,9 +419,10 @@ PCM streaming, measured with the controller's IMU over USB (2026-10-03):
     tick. The callback now arms a second buffer first; every packet arrives.
   - A flash write (a settings save) while the stream plays can wedge the ISO OUT endpoint: the driver keeps a
     transfer pending, refuses every re-arm, and drops every packet until a bus reset. A game then loses the Wave
-    style for good (style switches in the panel did this). Settings changed while the audio interface is at alt 1
-    apply at once and are saved once it leaves alt 1 (or before a reboot). A watchdog also re-arms the endpoint
-    when alt 1 has gone 50 ms without a packet.
+    style for good (style switches in the panel did this). A WebUSB setting applies at once and is saved from the
+    loop task, never the usbd task (whose 800-byte stack a LittleFS write nearly exhausts), and not while the audio
+    interface is at alt 1; a reboot writes it first. A watchdog also re-arms the endpoint when alt 1 has gone 50 ms
+    without a packet.
 - A stream that has gone silent is left to run dry. A `0x86` op 1 or a `-128 dB` `0x83` cut sent to an idle actuator
   plays as a click, so OpenPuck sends them only while something may still be playing.
 

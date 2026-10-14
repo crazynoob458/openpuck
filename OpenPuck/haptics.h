@@ -197,11 +197,15 @@ static inline uint8_t hsidePads(bool left, bool right)
 // controller buffers ~40 ms before playing, rides out 120 ms of jitter, and falls silent on its own when
 // frames stop. hapticPcmStart sets the format (it persists, so it is re-sent periodically, not torn down).
 #define PCM_SAMPLES 31u
+// A 0x88 frame as relayed: [n][PCM_SAMPLES left][PCM_SAMPLES right]. Producers fill it in place, so the usbd
+// task's audio path carries no second copy on its 800-byte stack.
+#define PCM_FRAME_LEN (1 + 2 * PCM_SAMPLES)
+#define PCM_FRAME_L(f) ((f) + 1)
+#define PCM_FRAME_R(f) ((f) + 1 + PCM_SAMPLES)
 #define PCM_RATE_HZ 4000u
 void hapticPcmStart(uint8_t slot);
-// Sends the first n samples of each side (n <= PCM_SAMPLES).
-bool hapticPcmSend(uint8_t slot, const uint8_t *left, const uint8_t *right,
-		   uint8_t n);
+// Sends the first n samples of each side of a PCM_FRAME_LEN frame (n <= PCM_SAMPLES); sets its count byte.
+bool hapticPcmSend(uint8_t slot, uint8_t *frame, uint8_t n);
 // Samples in the next frame of a new stream at `rate` Hz, `queued` samples into it (callers stop counting past
 // the threshold). The controller starts playing on the first frame to arrive once it holds more than 16 ms
 // (rate * 2 / 125: 64 samples at 4 kHz), and that fill stays buffered for the rest of the stream. One short

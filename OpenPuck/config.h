@@ -286,10 +286,11 @@ void cfgExtWrite(uint8_t index, uint8_t value);
 
 void loadCfg();
 void saveCfg();
-// A flash save stalls the CPU long enough to break a running DualSense USB audio stream: the game loses the grip
-// haptics and the controller's input reports stop. While one streams, a setting applies at once and its save
-// waits for the stream to stop (cfgSaveTask); a reboot writes it first (cfgSaveFlush). Power lost before then
-// loses it.
+// A setting applies at once; saveCfgSoon only marks it for saving, and cfgSaveTask writes it from the loop task.
+// WebUSB handlers run in the usbd task, whose 800-byte stack (fixed in the core) a LittleFS write nearly
+// exhausts, and a flash save stalls the CPU long enough to break a running DualSense USB audio stream: the game
+// loses the grip haptics and the controller's input reports stop. So the write also waits while one streams. A
+// reboot writes it first (cfgSaveFlush). Power lost before then loses it.
 void saveCfgSoon();
 void cfgSaveTask();
 void cfgSaveFlush();

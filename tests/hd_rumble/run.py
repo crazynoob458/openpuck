@@ -50,12 +50,15 @@ bool relayEnqueue(uint8_t rid,const uint8_t *p,uint8_t n,bool hap,uint8_t slot){
  assert(hap && slot<4);if(keepPcm || (rid!=0x86 && rid!=0x88))messages.push_back({rid,slot,{p,p+n}});return true;
 }
 #define PCM_SAMPLES 31u
+#define PCM_FRAME_LEN (1 + 2 * PCM_SAMPLES)
+#define PCM_FRAME_L(f) ((f) + 1)
+#define PCM_FRAME_R(f) ((f) + 1 + PCM_SAMPLES)
 #define PCM_RATE_HZ 4000u
 #define RUMBLE_TEST_AMP 0x8000u
 uint32_t micros(){return now*1000u;}
 uint8_t ps5WaveMask(){return 0;}
 void hapticPcmStart(uint8_t slot){if(keepPcm)messages.push_back({0x86,slot,{2,2,9}});}
-''' + h[h.index('static inline uint8_t hapticPcmFrameLen'):h.index('// G.711')] + '''bool hapticPcmSend(uint8_t slot,const uint8_t *l,const uint8_t *r,uint8_t n){assert(n && n<=31);std::vector<uint8_t> f(1,n);f.insert(f.end(),l,l+31);f.insert(f.end(),r,r+31);if(keepPcm)messages.push_back({0x88,slot,f});return true;}
+''' + h[h.index('static inline uint8_t hapticPcmFrameLen'):h.index('// G.711')] + '''bool hapticPcmSend(uint8_t slot,uint8_t *fr,uint8_t n){assert(n && n<=31);fr[0]=n;std::vector<uint8_t> f(fr,fr+63);if(keepPcm)messages.push_back({0x88,slot,f});return true;}
 uint8_t hapticUlaw(float x){return x>0.001f?1:(x<-0.001f?2:0);}
 ''' + h[h.index('static inline float hapticSoftLimit'):h.index('void hapticSwitchHd(')] + '''void hapticCancelPendingOn(int slot){
  for(auto &m:messages)if(m.slot==slot && ((m.rid==0x83 && int8_t(m.p[1])!=-128) || (m.rid==0x80 && m.p[0])))m.rid=0;
