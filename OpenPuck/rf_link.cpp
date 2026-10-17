@@ -4370,9 +4370,11 @@ static void rfConnStep()
 					// absent slots and when it would overrun the poll cycle.
 					if (!rx && g_connReplyMs[k] &&
 					    nowMs - g_connReplyMs[k] < 300u &&
-					    (uint32_t)(micros() - nowUs) + g_rxWin + 700u <
+					    (uint32_t)(micros() - nowUs) +
+							    g_rxWin + 700u <
 						    (uint32_t)g_pollUs)
-						rx = rfConnTx(ch, s1, p, sizeof p);
+						rx = rfConnTx(ch, s1, p,
+							      sizeof p);
 				}
 				if (coframeWaitPollAuth)
 					rfConnFeatureCoframeWaitPollAuthEnd(
