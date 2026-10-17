@@ -52,6 +52,19 @@ static Adafruit_USBD_HID g_ps5[NSLOT];
 static const uint8_t PS5_MAC_BASE[5] = { 0x00, 0x1B, 0xDC, 0x4F, 0x55 };
 static uint8_t g_ps5Mac[NSLOT][6];
 static bool g_ps5MacInit = false;
+
+// USB firmware-information payload from a DualSense, excluding report ID 0x20.
+// This emulated identity is independent of OpenPuck's own build version.
+static const uint8_t PS5_FIRMWARE_INFO[] = {
+	0x4A, 0x75, 0x6C, 0x20, 0x20, 0x34, 0x20, 0x32, 0x30, 0x32, 0x35,
+	0x31, 0x30, 0x3A, 0x31, 0x30, 0x3A, 0x33, 0x32, 0x02, 0x00, 0x04,
+	0x00, 0x13, 0x04, 0x00, 0x00, 0x2A, 0x00, 0x10, 0x01, 0x50, 0x38,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30,
+	0x06, 0x00, 0x00, 0x2A, 0x00, 0x01, 0x00, 0x0A, 0x00, 0x02, 0x00,
+	0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+static_assert(sizeof PS5_FIRMWARE_INFO == 63, "PS5 firmware report size");
+
 static void initPs5Macs()
 {
 	if (g_ps5MacInit)
@@ -96,7 +109,6 @@ static uint16_t ps5GetCommon(uint8_t slot, uint8_t rid, hid_report_type_t type,
 	if (!buf || reqlen == 0)
 		return 0;
 	memset(buf, 0, reqlen);
-
 	// DirectInput and game polling via GET_REPORT(INPUT, 0x01)
 	if (type == HID_REPORT_TYPE_INPUT) {
 		if ((rid == 0x01 || rid == 0) && reqlen >= 63) {
@@ -205,6 +217,8 @@ static void ps5SetCommon(uint8_t slot, uint8_t rid, hid_report_type_t type,
 		p = b + 1;
 		pn = (uint16_t)(n - 1);
 	} else {
+		// TinyUSB already strips the ID from control SET_REPORT data.
+		// A leading 0x02 here is the haptics flag, not another ID.
 		id = rid;
 		p = b;
 		pn = n;
